@@ -1,0 +1,920 @@
+---
+title: "Panorama des Tests d'adéquation à la loi gamma"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Introduction
+
+La distribution Gamma occupe une place centrale en statistique appliquée et en modélisation probabiliste. Elle apparaît naturellement dans de nombreux domaines tels que l’analyse de fiabilité, l’hydrologie, l’assurance, la biostatistique, l’analyse de survie ou encore la modélisation des processus de dégradation. En raison de sa flexibilité et de sa capacité à modéliser des variables positives asymétriques, elle constitue souvent un modèle privilégié pour décrire des phénomènes aléatoires non négatifs présentant une variabilité importante.
+
+Dans de nombreuses applications, la validité des méthodes statistiques utilisées repose sur l’hypothèse que les données observées suivent une distribution Gamma. Il est donc essentiel de disposer de procédures statistiques permettant d’évaluer la pertinence de cette hypothèse. Les tests d’adéquation (*goodness-of-fit tests*) jouent précisément ce rôle : ils permettent de déterminer si un échantillon de données est compatible avec une distribution Gamma donnée ou si cette hypothèse doit être rejetée au profit d’un modèle alternatif.
+
+Au cours des dernières décennies, un grand nombre de tests d’adéquation pour la distribution Gamma ont été proposés dans la littérature statistique. Ces tests reposent sur des principes théoriques variés. Certains sont fondés sur la comparaison entre la fonction de distribution empirique et la fonction de distribution théorique, comme les tests classiques de Kolmogorov–Smirnov, Cramér–von Mises ou Anderson–Darling. D’autres exploitent des propriétés de caractérisation de la distribution Gamma, telles que l’indépendance entre certaines statistiques d’échantillon ou des identités fonctionnelles impliquant des transformées intégrales. D’autres approches encore utilisent des méthodes basées sur les moments, les transformées de Laplace ou les *smooth tests* issus des travaux de Neyman.
+
+La diversité de ces approches reflète la difficulté intrinsèque du problème d’ajustement à la distribution Gamma. En effet, contrairement à certaines distributions simples, la loi Gamma possède deux paramètres inconnus dans la plupart des situations pratiques, ce qui complique l’obtention de distributions exactes des statistiques de test. De ce fait, de nombreuses procédures reposent sur des approximations asymptotiques ou sur des techniques de bootstrap paramétrique.
+
+L’objectif de ce document est de proposer un panorama structuré des principaux tests d’adéquation développés pour la distribution Gamma. Nous présentons pour chacun de ces tests les fondements théoriques, les statistiques de test associées, leurs propriétés asymptotiques ainsi que les règles de décision utilisées en pratique. Lorsque cela est possible, nous indiquons également les implémentations disponibles dans le logiciel `R` afin de faciliter leur utilisation par les praticiens.
+
+Ce panorama inclut des méthodes classiques ainsi que des contributions plus récentes issues de la littérature statistique contemporaine. Les tests considérés couvrent plusieurs familles méthodologiques, notamment les tests basés sur les transformées empiriques, les tests fondés sur des caractérisations de la distribution Gamma, les *smooth tests*, ainsi que diverses approches reposant sur les moments ou les propriétés d’indépendance.
+
+L’objectif n’est pas seulement de présenter ces méthodes, mais également de fournir une vue d’ensemble permettant de mieux comprendre les différentes stratégies utilisées pour tester l’adéquation à la loi Gamma et leurs implications pratiques.
+
+
+
+
+
+
+# Classification des tests d’adéquation pour la distribution Gamma
+
+La littérature statistique propose de nombreux tests d’adéquation pour la distribution Gamma. Ces tests reposent sur des principes théoriques variés et exploitent différentes propriétés caractéristiques de cette distribution. Afin de mieux comprendre leurs différences conceptuelles et méthodologiques, il est utile de les regrouper en plusieurs grandes familles selon l’idée statistique sur laquelle ils reposent.
+
+Dans ce panorama, les tests étudiés peuvent être classés en plusieurs catégories : les tests basés sur la fonction de distribution empirique, les tests fondés sur des caractérisations de la distribution Gamma, les tests utilisant des transformées empiriques, les smooth tests, les tests basés sur les moments et les tests construits à partir de statistiques particulières comme des rapports d’estimateurs.
+
+## 1. Tests basés sur la fonction de distribution empirique (EDF)
+
+Les tests de cette famille reposent sur la comparaison entre la fonction de distribution empirique de l’échantillon et la fonction de distribution théorique de la loi Gamma dont les paramètres sont estimés à partir des données. L’écart entre ces deux fonctions est mesuré à l’aide d’une statistique fonctionnelle.
+
+Les tests les plus classiques appartenant à cette famille sont :
+
+- le test de Kolmogorov–Smirnov
+- le test de Cramér–von Mises
+- le test d’Anderson–Darling
+
+Ces méthodes sont largement utilisées en pratique en raison de leur simplicité et de leur disponibilité dans les logiciels statistiques. Dans ce document, ces tests apparaissent notamment dans l’étude comparative de Karadağ et Aktaş (2016), qui examine leur performance pour l’ajustement à la distribution Gamma généralisée.
+
+
+## Test de Karadağ & Aktaş (2016)
+
+### Description
+L'article de Karadağ et Aktaş présente une étude comparative des tests d'adéquation pour la distribution Gamma généralisée (generalized gamma distribution). Les auteurs examinent les performances des tests de Kolmogorov-Smirnov, Cramér-von Mises et Anderson-Darling pour évaluer l'ajustement de données à une loi Gamma généralisée sous différents scénarios paramétriques.
+
+### Référence 
+- Karadağ, O. and Aktaş, S. (2016). "Goodness of Fit Tests for Generalized Gamma Distribution". *AIP Conference Proceedings*, 1738, 480119.
+
+### Distribution Gamma généralisée
+
+La distribution Gamma généralisée, introduite par Stacy (1962), a pour densité :
+
+$$f(y; \alpha, \beta, \gamma) = \frac{\gamma}{\alpha \Gamma(\beta)} \left(\frac{y}{\alpha}\right)^{\gamma\beta - 1} e^{-(y/\alpha)^\gamma}, \quad y \geq 0$$
+
+où :
+
+
+- $\alpha > 0$ est le paramètre d'échelle
+
+
+- $\beta > 0$ et $\gamma > 0$ sont les paramètres de forme
+
+
+- $\Gamma(\cdot)$ est la fonction gamma
+
+
+Cette distribution généralise plusieurs lois classiques :
+
+- $\gamma = 1$ : distribution Gamma standard
+
+- $\beta = \gamma = 1$ : distribution exponentielle
+
+- $\beta = 1$ : distribution de Weibull
+
+- $\beta \to \infty$ : distribution lognormale
+
+
+Les moments d'ordre $k$ sont donnés par :
+
+
+$$E(Y^k) = \frac{\alpha^k \Gamma\left(\frac{k}{\gamma} + \beta\right)}{\Gamma(\beta)}$$
+
+### Tests étudiés
+
+Les auteurs comparent trois tests d'adéquation classiques adaptés à la distribution Gamma généralisée :
+
+#### 1. Test de Kolmogorov-Smirnov (KS)
+
+La statistique de Kolmogorov-Smirnov mesure la distance maximale entre la fonction de répartition empirique et la fonction de répartition théorique :
+
+$$D_n = \sup_y |F_n(y) - F(y)|$$
+
+où $F_n(y)$ est la fonction de répartition empirique et $F(y)$ la fonction de répartition de la distribution Gamma généralisée avec les paramètres estimés.
+
+#### 2. Test de Cramér-von Mises (CM)
+
+La statistique de Cramér-von Mises est définie par :
+
+$$W^2 = n \int_{-\infty}^{\infty} [F_n(y) - F(y)]^2 dF(y)$$
+
+Ce test est particulièrement puissant contre une large classe d'alternatives.
+
+#### 3. Test d'Anderson-Darling (AD)
+
+La statistique d'Anderson-Darling est définie par :
+
+$$A^2 = -\frac{1}{n}\sum_{i=1}^n (2i-1)[\ln F(y_{(i)}) + \ln(1 - F(y_{(n-i+1)}))] - n$$
+
+où $y_{(1)} \leq y_{(2)} \leq \ldots \leq y_{(n)}$ sont les statistiques d'ordre.
+
+Le test d'Anderson-Darling est particulièrement sensible aux écarts dans les queues de distribution.
+
+
+
+### Résultats numériques
+
+Les résultats des tests sont présentés dans le tableau suivant (extrait) :
+
+| Cas | n | $\alpha$ | $\beta$ | $\gamma$ | KS p-val | CM p-val | AD p-val |
+|:---:|:--:|:--------:|:-------:|:--------:|:--------:|:--------:|:--------:|
+| 1 | 10 | 1 | 2 | 0 | 0.500 | 0.500 | 0.500 |
+| 2 | 10 | 3 | 4 | 0 | 0.075* | 0.073* | 0.098* |
+| 3 | 10 | 9 | 0.5 | 0 | 0.092* | 0.087* | 0.118 |
+| 4 | 10 | 1 | 2 | 5 | 0.500 | 0.500 | 0.500 |
+| 5 | 10 | 3 | 4 | 5 | 0.250 | 0.500 | 0.500 |
+| 6 | 10 | 9 | 0.5 | 5 | 0.500 | 0.500 | 0.500 |
+| ... | ... | ... | ... | ... | ... | ... | ... |
+| 19 | 100 | 3 | 4 | 1.4 | 0.129 | 0.084* | 0.063* |
+| 20 | 100 | 3 | 4 | 1.5 | 0.116 | 0.053* | 0.040** |
+| 21 | 100 | 3 | 4 | 1.6 | 0.095* | 0.024** | 0.018** |
+
+* significatif à 10%, ** significatif à 5%
+
+### Interprétation des résultats
+
+- Pour les cas 2 et 3 ($\gamma = 0$), les tests KS et CM rejettent l'hypothèse nulle à 10%, mais AD ne rejette pas
+- Pour les cas 19-21 ($\gamma$ proche de 1), le test AD est plus sensible et rejette pour $\gamma = 1.5$ et $1.6$
+- Les tests montrent que la distribution Gamma généralisée peut être un modèle approprié pour certaines configurations paramétriques
+
+### Règle de décision
+
+Pour chaque test, on rejette $H_0$ si :
+
+- $D_n > D_{n,\alpha}$ (valeur critique de Kolmogorov-Smirnov)
+
+- $W^2 > W^2_{n,\alpha}$ (valeur critique de Cramér-von Mises)
+
+- $A^2 > A^2_{n,\alpha}$ (valeur critique d'Anderson-Darling)
+
+Ou de manière équivalente, si la p-value est inférieure au seuil de signification $\alpha$.
+
+### Package R
+
+Ces tests sont disponibles dans plusieurs packages R :
+
+| Test | Package | Fonction |
+|:----:|:-------:|:--------:|
+| Kolmogorov-Smirnov | `stats` | `ks.test()` |
+| Cramér-von Mises | `goftest` | `cvm.test()` |
+| Anderson-Darling | `goftest` | `ad.test()` |
+| Tests EDF pour Gamma | `gofedf` | `testGamma()` |
+
+## 2. Tests fondés sur des caractérisations de la distribution Gamma
+
+Une caractérisation d’une distribution est une propriété mathématique qui est vérifiée si et seulement si une variable aléatoire suit cette distribution. Plusieurs tests d’adéquation exploitent ces propriétés pour détecter des écarts au modèle Gamma.
+
+Parmi les caractérisations importantes utilisées dans la littérature figurent :
+
+- l’indépendance entre la moyenne et le coefficient de variation d’un échantillon, utilisée par Wilding et Mudholkar (2008) ;
+- l’indépendance entre la somme et le rapport de deux variables Gamma indépendantes ayant le même paramètre d’échelle, propriété établie par Lukacs (1955) et utilisée dans le test proposé par Locke (1976) ;
+- des relations d’indépendance entre certaines transformations des observations, exploitées dans les tests récents proposés par Halaj et al. (2024) ;
+- des caractérisations par point fixe combinées à la théorie des U-statistiques, utilisées dans le test de Vaisakh, Sreedevi et Kattumannil (2025).
+
+Ces approches reposent sur des propriétés structurelles profondes de la distribution Gamma et conduisent souvent à des statistiques de test basées sur des mesures d’indépendance ou de corrélation.
+
+
+
+
+
+
+## a) Test de Castillo & Puig (1997)
+
+### Description
+Le test de Castillo et Puig est un test d'adéquation pour détecter les écarts par rapport aux distributions Gamma, de Rayleigh et normale tronquée. Les auteurs proposent une procédure basée sur une transformation qui rend la distribution sous-jacente approximativement normale, permettant ainsi d'utiliser des tests de normalité classiques.
+
+### Référence 
+- Castillo, J. D. and Puig, P. (1997). "Testing departures from Gamma, Rayleigh and truncated normal distributions". *Annals of the Institute of Statistical Mathematics*, 49(2), 255-269.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi Gamma (ou Rayleigh, ou normale tronquée)
+
+- **$H_1$** : Les données ne suivent pas la distribution spécifiée
+
+### Principe général du test
+L'idée fondamentale de l'approche de Castillo et Puig est de transformer les données de telle sorte que, sous l'hypothèse nulle, la distribution transformée soit approximativement normale. On peut ensuite appliquer n'importe quel test de normalité (Shapiro-Wilk, Anderson-Darling, etc.) pour évaluer l'ajustement.
+
+
+
+### Transformation pour la loi Gamma
+
+Pour une variable aléatoire $X$ suivant une loi Gamma de densité :
+
+$$f(x; \alpha, \beta) = \frac{\beta^\alpha}{\Gamma(\alpha)} x^{\alpha-1} e^{-\beta x}, \quad x > 0$$
+
+où $\alpha > 0$ est le paramètre de forme et $\beta > 0$ le paramètre d'échelle.
+
+La transformation proposée par Castillo et Puig est basée sur la fonction de répartition $F(x; \alpha, \beta)$. En effet, si $X \sim \text{Gamma}(\alpha, \beta)$, alors $U = F(X; \alpha, \beta)$ suit une loi uniforme sur $[0,1]$. En appliquant ensuite la transformation inverse de la loi normale, on obtient :
+
+$$Z = \Phi^{-1}(U) = \Phi^{-1}(F(X; \alpha, \beta))$$
+
+où $\Phi^{-1}$ est la fonction quantile de la loi normale centrée réduite.
+
+Sous $H_0$, $Z$ suit approximativement une loi normale centrée réduite. En pratique, les paramètres $\alpha$ et $\beta$ sont inconnus et doivent être estimés, ce qui introduit une approximation supplémentaire.
+
+### Statistique de test
+
+La procédure de test se décompose en plusieurs étapes :
+
+1. **Estimation des paramètres** : On estime $\alpha$ et $\beta$ par maximum de vraisemblance (ou par une autre méthode consistante)
+2. **Transformation** : On calcule pour chaque observation $X_i$ la valeur transformée :
+   $$Z_i = \Phi^{-1}(F(X_i; \hat{\alpha}, \hat{\beta}))$$
+   où $F$ est la fonction de répartition de la loi Gamma
+3. **Test de normalité** : On applique un test de normalité (Shapiro-Wilk, Anderson-Darling, etc.) aux valeurs $Z_i$
+
+### Propriétés importantes
+- Le test est **consistant** contre toutes les alternatives pour lesquelles le test de normalité utilisé est consistent
+- La transformation dépend de l'estimation des paramètres, ce qui affecte la distribution des $Z_i$
+- Pour les échantillons de taille modérée à grande, la procédure fonctionne bien
+- Le test est **restreint** à un sous-ensemble d'alternatives selon les auteurs (cette limitation est mentionnée dans Henze et al., 2012)
+
+### Choix du test de normalité
+
+Castillo et Puig recommandent d'utiliser des tests de normalité puissants comme :
+
+- **Test de Shapiro-Wilk** : Particulièrement puissant pour les petits échantillons
+- **Test d'Anderson-Darling** : Sensible aux écarts dans les queues de distribution
+- **Test de Cramér-von Mises** : Bonne puissance générale
+
+### Distribution asymptotique
+
+La distribution des $Z_i$ n'est pas exactement normale en raison de l'estimation des paramètres. Cependant, pour de grands échantillons, l'effet de cette estimation devient négligeable, et les $Z_i$ sont approximativement normaux. Les valeurs critiques des tests de normalité standards peuvent donc être utilisées comme approximations.
+
+### Règle de décision
+
+Pour un test de niveau $\alpha$ :
+
+1. Calculer les $Z_i$ transformés
+2. Appliquer le test de normalité choisi aux $Z_i$
+3. Rejeter $H_0$ si la p-value du test de normalité est inférieure à $\alpha$
+
+### Package R
+
+Il n'existe pas de package R dédié spécifiquement à ce test.
+
+
+
+
+
+## b) Test de Vaisakh, Sreedevi & Kattumannil (2025)
+
+### Description
+Ce test propose une nouvelle procédure d'adéquation pour la distribution Gamma basée sur une caractérisation par point fixe. Les auteurs utilisent la théorie des U-statistiques pour développer la statistique de test. Une caractéristique importante de ce test est qu'il peut être appliqué aussi bien à des données complètes qu'à des données censurées à droite, ce qui le rend particulièrement utile en analyse de survie et en fiabilité.
+
+### Référence
+- Vaisakh, K. M., Sreedevi, E. P. and Kattumannil, S. K. (2025). "A new goodness of fit test for gamma distribution with censored observations". *Communications in Statistics: Simulation and Computation*, 54(1), 91-103.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi Gamma (avec paramètres inconnus)
+- **$H_1$** : Les données ne suivent pas une loi Gamma
+
+### Statistique de test
+Le test est basé sur une caractérisation par point fixe de la distribution Gamma. En utilisant la théorie des U-statistiques, la statistique de test est développée pour mesurer l'écart entre la distribution empirique et la distribution Gamma attendue. La forme exacte de la statistique est dérivée dans l'article à partir de l'identité de Stein ou d'une caractérisation similaire.
+
+### Propriétés importantes
+- **Application aux données censurées** : Le test peut être utilisé avec des données censurées à droite, ce qui est un avantage majeur par rapport à de nombreux tests existants
+- **Théorie asymptotique** : Les propriétés asymptotiques de la statistique de test sont étudiées pour les cas censuré et non censuré
+- **U-statistiques** : La construction utilise la théorie des U-statistiques, ce qui garantit de bonnes propriétés asymptotiques
+
+### Distribution asymptotique
+Sous $H_0$, la statistique de test converge vers une distribution limite qui est établie dans l'article. Les auteurs étudient le comportement asymptotique dans les deux contextes (données complètes et données censurées).
+
+### Règle de décision
+Une étude de simulation Monte Carlo est menée pour valider les performances du test sur des échantillons finis. La procédure de bootstrap ou l'utilisation des quantiles asymptotiques peut être employée pour déterminer la région critique. On rejette $H_0$ si la statistique observée dépasse la valeur critique appropriée.
+
+### Applications pratiques
+Les auteurs illustrent l'utilité du test à travers des applications sur des données réelles, démontrant sa pertinence pratique.
+
+### Package R
+Il n'existe pas encore de package R dédié spécifiquement à ce test très récent (2025). Une implémentation manuelle serait nécessaire en suivant les détails techniques de l'article.
+
+### Références connexes
+- Vaisakh, K. M., Sreedevi, E. P. and Kattumannil, S. K. (2025). "Goodness-of-fit tests for inverse Gaussian distribution in the presence and absence of censoring". *Journal of Statistical Computation and Simulation*, 95(5), 1010-1032.
+
+
+
+
+## c) Test de Wilding & Mudholkar (2008)
+
+### Description
+Le test de Wilding & Mudholkar est un test d'adéquation pour la loi Gamma basé sur une propriété de caractérisation de la distribution Gamma : l'indépendance de la moyenne et du coefficient de variation. Cette approche s'inscrit dans une famille de tests développés par les mêmes auteurs utilisant des caractérisations par l'indépendance de statistiques échantillonnales.
+
+### Référence
+- Wilding, G. E. and Mudholkar, G. S. (2008). "A gamma goodness-of-fit test based on characteristic independence of the mean and coefficient of variation". *Journal of Statistical Planning and Inference*, 138(12), 3813-3821.
+
+### Hypothèses
+
+- **$H_0$** : Les données suivent une loi Gamma avec paramètres inconnus
+
+- **$H_1$** : Les données ne suivent pas une loi Gamma
+
+### Fondement théorique : caractérisation de Hwang & Hu (1999)
+
+Le test est basé sur le théorème de caractérisation suivant :
+
+> **Théorème (Hwang & Hu, 1999)** : La moyenne $\bar{x}$ et le coefficient de variation $c = s/\bar{x}$ d'un échantillon aléatoire $x_1, x_2, \ldots, x_n$ de taille $n \geq 3$ sont indépendants si et seulement si la population suit une loi Gamma.
+
+Cette propriété fondamentale est utilisée pour construire un test d'adéquation : sous $H_0$, la moyenne et le coefficient de variation doivent être indépendants.
+
+### Statistique de test
+
+La procédure utilise une technique de jackknife pour créer $n$ paires $(\bar{x}_{-i}, c_{-i})$ en retirant une observation à la fois :
+
+$$\bar{x}_{-i} = \frac{1}{n-1}\sum_{j \neq i} x_j, \quad c_{-i} = \frac{s_{-i}}{\bar{x}_{-i}}$$
+
+où $s_{-i}$ est l'écart-type calculé sans la $i$-ème observation.
+
+La statistique de test est le coefficient de corrélation entre ces $n$ paires :
+
+$$r(G) = \frac{\sum_{i=1}^n (\bar{x}_{-i} - \bar{x})(c_{-i} - \tilde{c})}{\sqrt{\sum_{i=1}^n (\bar{x}_{-i} - \bar{x})^2 \sum_{i=1}^n (c_{-i} - \tilde{c})^2}}$$
+
+où $\tilde{c} = \frac{1}{n}\sum_{i=1}^n c_{-i}$.
+
+Une forme asymptotiquement équivalente est :
+
+$$r(G) = \sqrt{\frac{n-1}{n}} \frac{m_3\bar{x} - 2m_2^2}{\bar{x}^2 \sqrt{m_2(m_4 - m_2^2) - 4\bar{x}m_2^2 m_3 + 4m_2^4}}$$
+
+où $m_k$ sont les moments empiriques d'ordre $k$.
+
+### Transformation de Fisher
+
+Pour améliorer la convergence vers la normalité, les auteurs proposent d'utiliser la transformation de Fisher :
+
+$$Z(G) = \frac{1}{2} \ln\left(\frac{1 + r(G)}{1 - r(G)}\right)$$
+
+### Distribution asymptotique
+
+Sous $H_0$, pour un échantillon issu d'une loi Gamma de paramètre de forme $\alpha$, on a :
+
+$$\sqrt{n} \, r(G) \sim AN\left(0, 3 + \frac{10}{\alpha}\right)$$
+
+et pour la statistique transformée :
+
+$$\sqrt{n} \, Z(G) \sim AN\left(0, 3 + \frac{10}{\alpha}\right)$$
+
+### Règle de décision
+
+Pour un test de niveau $\alpha$, on rejette $H_0$ si :
+
+$$\left|\sqrt{n} \, Z(G)\right| > z_{1-\alpha/2} \sqrt{3 + \frac{10}{\hat{\alpha}}}$$
+
+où $\hat{\alpha}$ est l'estimateur du maximum de vraisemblance du paramètre de forme, et $z_{1-\alpha/2}$ est le quantile de la loi normale centrée réduite.
+
+
+### Estimation du paramètre de forme
+
+Le paramètre de forme $\alpha$ étant inconnu, il doit être estimé. Les auteurs recommandent l'estimateur du maximum de vraisemblance obtenu par l'algorithme itératif suivant :
+
+$$\alpha_m = \frac{\alpha_{m-1}(\ln(\alpha_{m-1}) - \Psi(\alpha_{m-1}))}{y}, \quad y > 0, \quad m = 1,2,\ldots$$
+
+avec valeur initiale $\alpha_0 = 0.25y^{-1}(1 + \sqrt{1 + 4y/3})$, où $y = \ln(\bar{x}) - \frac{1}{n}\sum_{i=1}^n \ln x_i$ et $\Psi$ est la fonction digamma.
+
+### Package R
+Il n'existe pas de package R dédié à ce test. Une implémentation manuelle est nécessaire.
+
+
+
+## d)  Test de Locke (1976)
+
+### Description
+Le test de Locke est un test d'adéquation pour l'hypothèse composite qu'une population suit une distribution Gamma. Il est basé sur la caractérisation de Lukacs (1955) : l'indépendance de la somme et du rapport de deux variables aléatoires gamma indépendantes avec le même paramètre d'échelle. La procédure consiste à diviser l'échantillon en paires et à tester l'indépendance entre les sommes et les rapports de ces paires à l'aide de tests de corrélation de rang.
+
+### Référence
+- Locke, C. (1976). "A test for the composite hypothesis that a population has a gamma distribution". *Communications in Statistics - Theory and Methods*, 5(4), 351-364.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi Gamma (avec paramètres inconnus)
+- **$H_1$** : Les données ne suivent pas une loi Gamma
+
+### Fondement théorique : caractérisation de Lukacs (1955)
+
+Le test repose sur le théorème de caractérisation suivant :
+
+> **Théorème (Lukacs, 1955)** : Si $X_1$ et $X_2$ sont deux variables aléatoires indépendantes, positives et non-dégénérées, alors $X_1 + X_2$ et $X_1 / X_2$ sont indépendantes si et seulement si $X_1$ et $X_2$ suivent des lois Gamma avec le même paramètre d'échelle.
+
+Cette propriété fondamentale est utilisée pour construire un test d'adéquation : sous $H_0$, les sommes et les rapports d'observations appariées doivent être indépendants.
+
+### Construction de la statistique de test
+
+La procédure de Locke transforme l'échantillon de taille $n$ en $m$ paires indépendantes :
+
+1. **Formation des paires** : L'échantillon original de taille $n$ est divisé aléatoirement en $m = \lfloor n/2 \rfloor$ paires d'observations $(X_{2i-1}, X_{2i})$. Si $n$ est impair, une observation est aléatoirement éliminée.
+
+2. **Transformation** : Pour chaque paire, on calcule deux nouvelles variables :
+   - $U_i = X_{2i-1} + X_{2i}$ (la somme)
+   - $V_i = \dfrac{\max(X_{2i-1}, X_{2i})}{\min(X_{2i-1}, X_{2i})}$ (le rapport, toujours $\geq 1$)
+
+   Sous $H_0$, $U_i$ et $V_i$ doivent être indépendants.
+
+3. **Test d'indépendance** : On teste l'indépendance entre les $m$ paires $(U_i, V_i)$. Locke propose d'utiliser des tests de corrélation de rang :
+   - Le test de corrélation de rang de Kendall ($\tau$)
+   - Le test de corrélation de rang de Spearman ($\rho$)
+   - Le test des quadrants (sign test)
+
+### Statistiques de test
+
+#### Test de Kendall ($\tau$)
+$$\tau = \frac{2}{m(m-1)} \sum_{i<j} \text{signe}(U_i - U_j) \cdot \text{signe}(V_i - V_j)$$
+
+#### Test de Spearman ($\rho$)
+$$\rho = 1 - \frac{6\sum_{i=1}^m (R_i - S_i)^2}{m(m^2 - 1)}$$
+
+où $R_i$ et $S_i$ sont les rangs des $U_i$ et $V_i$ respectivement.
+
+#### Test des quadrants
+Ce test compte le nombre de paires tombant dans chaque quadrant après avoir centré les données par leurs médianes respectives.
+
+### Propriétés importantes
+- **Distribution libre** : Les tests de rang sont non paramétriques et leur distribution ne dépend pas de la loi sous-jacente sous $H_0$.
+- **Pas d'estimation de paramètres** : Contrairement à de nombreux tests d'adéquation, aucune estimation des paramètres de la loi Gamma n'est nécessaire.
+- **Faiblesse** : Les tests d'indépendance utilisés par Locke ne sont pas consistants contre toutes les alternatives de dépendance. Ils peuvent ne pas détecter certaines formes de dépendance entre $U$ et $V$.
+
+### Distribution asymptotique
+
+#### Pour le test de Kendall
+Sous $H_0$, $\sqrt{m} \, \tau$ converge asymptotiquement vers une loi normale centrée de variance $\dfrac{2(2m+5)}{9m(m-1)}$.
+
+#### Pour le test de Spearman
+Sous $H_0$, $\sqrt{m-1} \, \rho$ converge asymptotiquement vers une loi normale centrée réduite.
+
+#### Pour le test des quadrants
+La statistique suit asymptotiquement une loi normale dont les paramètres dépendent de la définition exacte du test.
+
+### Règle de décision
+Pour un test de niveau $\alpha$, on rejette $H_0$ si la valeur absolue de la statistique de corrélation est trop grande (test bilatéral), c'est-à-dire si la p-value est inférieure à $\alpha$.
+
+
+
+### Package R
+Il n'existe pas de package R dédié spécifiquement à ce test. 
+
+
+
+## e) Test de Halaj, Milošević, Obradović & Jiménez-Gamero (2024)
+
+### Description
+Ce test propose une classe de statistiques de test basées sur des caractérisations de type "indépendance" pour plusieurs familles de distributions, dont la loi Gamma. Les auteurs construisent des tests d'adéquation qui sont consistants contre toutes les alternatives fixes en utilisant des caractérisations établissant que certaines transformations des données sont indépendantes si et seulement si la distribution sous-jacente est Gamma.
+
+### Référence exacte
+- Halaj, K., Milošević, B., Obradović, M. and Jiménez-Gamero, M. D. (2024). "Correlation-type goodness-of-fit tests based on independence characterizations". *AStA Advances in Statistical Analysis*, 108(1), 185-207.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi Gamma (ou une autre distribution de la classe considérée)
+- **$H_1$** : Les données ne suivent pas une loi Gamma
+
+### Statistique de test
+La procédure utilise des fonctions mesurables $f$ et $g$ telles que, sous $H_0$, les variables transformées $f(X_i, X_j)$ et $g(X_i, X_j)$ sont indépendantes. La classe de statistiques proposées est de type corrélation, basée sur l'échantillon bivarié des paires $(f(X_i, X_j), g(X_i, X_j))$ pour $i \neq j$.
+
+La forme générale de la statistique est :
+
+$$T_n = \frac{1}{n(n-1)} \sum_{i\neq j} \phi\left(f(X_i,X_j), g(X_i,X_j)\right)$$
+
+où $\phi$ est une fonction de score appropriée, souvent choisie comme un produit de fonctions de covariance ou de corrélation.
+
+### Règle de décision
+Sous $H_0$, la statistique $T_n$ converge vers une distribution limite qui dépend de la caractérisation utilisée. La procédure de bootstrap paramétrique est recommandée pour obtenir les valeurs critiques, comme c'est souvent le cas pour les tests basés sur des caractérisations. On rejette $H_0$ si la statistique observée est supérieure au quantile approprié de la distribution bootstrap.
+
+### Package R
+Il n'existe pas encore de package R dédié spécifiquement à ce test récent (2024). Une implémentation manuelle serait nécessaire en suivant les détails techniques de l'article.
+
+### Références connexes
+- Baringhaus, L. and Gaigall, D. (2015). "On an independence test approach to the goodness-of-fit problem". *Journal of Multivariate Analysis*, 140(C), 193-208.
+- Betsch, S. and Ebner, B. (2019). "A new characterization of the Gamma distribution and associated goodness-of-fit tests". *Metrika*, 82(7), 779-806.
+- Allison, J. S., Betsch, S., Ebner, B. and Visagie, J. (2022). "On Testing the Adequacy of the Inverse Gaussian Distribution". *Mathematics*, 10(3), 1-18.
+
+
+
+
+
+## 3. Tests basés sur des transformées empiriques
+
+Une autre famille importante de tests utilise des transformées intégrales de la distribution, qui caractérisent entièrement la loi d’une variable aléatoire. L’idée consiste à comparer une transformée empirique construite à partir des données avec la transformée théorique correspondant à la distribution Gamma.
+
+Deux approches importantes de ce type sont présentées dans ce document :
+
+- le test de Henze, Meintanis et Ebner (2012), basé sur la transformée de Laplace empirique ;
+- le test de Kallioras, Koutrouvelis et Canavos (2006), basé sur la fonction génératrice des moments empirique.
+
+Ces méthodes conduisent généralement à des statistiques de test définies comme des intégrales de processus stochastiques mesurant l’écart entre les transformées empiriques et théoriques.
+
+
+
+## a) Test de Kallioras, Koutrouvelis & Canavos (2006)
+
+### Description
+Le test de Kallioras, Koutrouvelis et Canavos est un test d'adéquation pour les lois Gamma à deux et trois paramètres, basé sur la fonction génératrice des moments empirique (empirical moment generating function, EMGF). Les auteurs proposent des statistiques de test construites à partir de formes quadratiques minimisant les différences standardisées entre les valeurs de la fonction génératrice des moments empirique et théorique.
+
+### Référence 
+- Kallioras, A. G., Koutrouvelis, I. A. and Canavos, G. C. (2006). "Testing the Fit of Gamma Distributions Using the Empirical Moment Generating Function". *Communications in Statistics - Theory and Methods*, 35(3), 527-540.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi Gamma à deux paramètres (G2) ou à trois paramètres (G3)
+
+- **$H_1$** : Les données ne suivent pas une loi Gamma
+
+### Statistique de test
+
+#### Pour la loi Gamma à trois paramètres (G3)
+
+La densité de la loi Gamma à trois paramètres est :
+
+$$f(x;\theta) = \frac{1}{\beta\Gamma(\alpha)}\left(\frac{x - \gamma}{\beta}\right)^{\alpha-1}\exp\left[-\left(\frac{x - \gamma}{\beta}\right)\right],\quad x > \gamma$$
+
+avec $\theta = (\alpha, \beta, \gamma)'$ où $\alpha > 0$ est le paramètre de forme, $\beta > 0$ le paramètre d'échelle, et $\gamma$ le paramètre de position.
+
+La fonction génératrice des moments (MGF) est :
+
+$$\psi(t;\theta) = \exp(\gamma t)(1 - \beta t)^{-\alpha},\quad t < \frac{1}{\beta}$$
+
+La fonction génératrice des moments empirique (EMGF) est :
+
+$$\psi_n(t) = \frac{1}{n}\sum_{i=1}^n \exp(t X_i)$$
+
+Soit $t = (t_1, \ldots, t_r)$ avec $t_k = k\tau$ pour un entier $r > 3$ et un nombre négatif $\tau$ (standard spacing). On définit :
+
+$$\xi_k = \ln \psi(t_k;\theta), \quad \xi_{nk} = \ln \psi_n(t_k)$$
+
+La statistique de test est basée sur une procédure itérative d'estimation par moindres carrés généralisés (GLS). À l'itération $j$, on minimise la forme quadratique :
+
+$$Q_{nj}(t;\theta) = n[\xi_n^{(j)}(t) - \xi^{(j)}(t;\theta)]' \Sigma_{(j)}^{-1} [\xi_n^{(j)}(t) - \xi^{(j)}(t;\theta)]$$
+
+où $\xi_n^{(j)}(t) = \xi_n(t^{(j)})$, $\xi^{(j)}(t;\theta) = \xi(t^{(j)};\theta)$ avec $t^{(j)} = (t_1^{(j)}, \ldots, t_r^{(j)})'$, $t_k^{(j)} = k\tau/\hat{\theta}_j$.
+
+#### Pour la loi Gamma à deux paramètres (G2)
+
+C'est le cas particulier avec $\gamma = 0$. La statistique de test est alors :
+
+$$\chi^2(G2) = Q_{nj}(t;\hat{\theta}_{j+1})$$
+
+avec $\hat{\theta}_{j+1}$ l'estimateur obtenu après convergence de la procédure itérative.
+
+### Distribution asymptotique
+
+Sous $H_0$, pour tout $j \geq 0$, les statistiques $Q_{nj}(t;\hat{\theta}_{j+1})$ et $R_{nj}(t;\tilde{\theta}_{j+1})$ suivent asymptotiquement une loi du $\chi^2$ :
+
+- Pour le test G3 (3 paramètres) : $\chi^2_{r-3}$
+- Pour le test G2 (2 paramètres) : $\chi^2_{r-2}$
+
+où $r$ est le nombre de points $t_k$ utilisés (dans l'étude, $r = 7$).
+
+
+
+### Règle de décision
+Pour un niveau de signification $p$, on rejette $H_0$ si :
+
+$$\chi^2(G2) > \chi^2_{p,5}$$
+
+où $\chi^2_{p,5}$ est le percentile d'ordre $100(1-p)$ de la loi du $\chi^2$ à 5 degrés de liberté (pour $r = 7$).
+
+
+
+### Package R
+Il n'existe pas de package R dédié à ce test.
+
+
+
+## b)  Test de Henze, Meintanis & Ebner (2012)
+
+### Description
+Le test de Henze, Meintanis et Ebner est un test d'adéquation pour la loi Gamma basé sur la transformée de Laplace empirique (ELT). Les auteurs proposent une classe de tests omnibus qui utilisent une caractérisation de la loi Gamma par une équation différentielle de sa transformée de Laplace. La statistique de test mesure l'écart entre la transformée de Laplace empirique et la transformée de Laplace théorique.
+
+### Référence
+- Henze, N., Meintanis, S. G. and Ebner, B. (2012). "Goodness-of-Fit Tests for the Gamma Distribution Based on the Empirical Laplace Transform". *Communications in Statistics - Theory and Methods*, 41(9), 1543-1556.
+
+### Hypothèses
+$
+- **$H_0$** : Les données suivent une loi Gamma $\Gamma(\delta, c)$ avec paramètres inconnus
+
+- **$H_1$** : Les données ne suivent pas une loi Gamma
+
+### Statistique de test
+
+La transformée de Laplace d'une variable aléatoire $X$ est définie par $l(t) = E[\exp(-tX)]$. Pour la loi Gamma $\Gamma(\delta, c)$, la transformée de Laplace est l'unique solution de l'équation différentielle :
+
+$$(1 + ct)l'(t) + \delta c l(t) = 0, \quad l(0) = 1$$
+
+Les auteurs construisent un processus stochastique mesurant l'écart à cette équation :
+
+$$Z_n(t) = \sqrt{n}[\hat{\theta}_n L_n(t) + (1 + t)L_n'(t)]$$
+
+où $L_n(t) = \frac{1}{n}\sum_{j=1}^n \exp(-tY_j)$ avec $Y_j = X_j/\hat{c}_n$, et $\hat{\theta}_n$, $\hat{c}_n$ sont des estimateurs convergents de $\delta$ et $c$.
+
+La statistique de test est alors :
+
+$$T_{n,a} = \int_0^\infty Z_n^2(t) w_a(t) dt$$
+
+Deux fonctions de poids sont proposées :
+
+1. **Premier test ($T_{n,a}^{(1)}$)** : $w_a(t) = e^{-at}$
+
+2. **Deuxième test ($T_{n,a}^{(2)}$)** : $w_a(t) = e^{-at^2}$
+
+où $a > 0$ est un paramètre de tuning contrôlant le taux de décroissance de la fonction de poids.
+
+### Propriétés importantes
+
+- La famille de tests est omnibus (consistante contre toutes les alternatives)
+
+- Les statistiques de test sont invariantes par changement d'échelle
+
+- Quand $a \to \infty$, les statistiques convergent vers $T_{n,\infty} = n(S^2 - \overline{Y})^2$, liée à la première composante non nulle du test lisse de Neyman
+
+- La version recommandée par les auteurs est $T_{n,1}^{(1)}$ (premier test avec $a=1$)
+
+### Distribution asymptotique
+Sous $H_0$, la statistique $T_{n,a}$ converge vers une distribution qui est celle d'une forme quadratique de processus gaussiens. Plus précisément :
+
+$$T_{n,a} \xrightarrow[n \to +\infty]{d} \| \mathcal{W} \|^2 = \sum_{j \geq 1} \lambda_j N_j^2$$
+
+où les $N_j$ sont des variables normales centrées réduites indépendantes, et $\lambda_j$ sont les valeurs propres de l'opérateur intégral associé au noyau de covariance $K_\theta(s,t)$.
+
+Cette distribution dépend du paramètre de forme $\delta$, ce qui rend son utilisation directe difficile en pratique.
+
+### Règle de décision
+En pratique, on utilise une procédure de bootstrap paramétrique :
+
+1. Estimer $\hat{\theta}_n$ à partir des données
+
+2. Générer $B$ échantillons bootstrap de taille $n$ depuis $\Gamma(\hat{\theta}_n, 1)$
+
+3. Calculer la statistique $T_{n,a}^*$ pour chaque échantillon bootstrap
+
+4. Rejeter $H_0$ si $T_{n,a}$ est supérieur au $95^e$ percentile de la distribution bootstrap
+
+### Package R
+
+- **Package** : `gofgamma`
+- **Fonctions** : 
+  - `test.HME1()` pour le premier test ($T_{n,a}^{(1)}$ avec $a=1$ par défaut)
+  - `test.HME2()` pour le deuxième test ($T_{n,a}^{(2)}$ avec $a=4$ par défaut)
+
+### Implémentation dans R
+```{r}
+
+# Installation du package si nécessaire
+if (!require(gofgamma)) {
+  install.packages("gofgamma")
+  library(gofgamma)
+}
+
+# Exemple d'utilisation avec le test recommandé HME1 (a=1)
+set.seed(123)
+x <- rgamma(100, shape = 3, rate = 0.5)  # Données suivant une loi Gamma
+
+# Test HME1 (recommandé)
+resultat1 <- test.HME1(x, a = 1, boot = 500, alpha = 0.05)
+print(resultat1)
+
+# Interprétation
+if(resultat1$Decision == "Reject H0") {
+  cat("Décision : REJET H0 (ne suit pas une loi Gamma)\n")
+} else {
+  cat("Décision : Non rejet H0 (peut suivre une loi Gamma)\n")
+}
+
+```
+
+
+
+## 4. Smooth tests
+
+Les *smooth tests* constituent une classe générale de tests d’adéquation introduite par Neyman. Le principe consiste à intégrer la densité $sous l’hypothèse nulle dans une famille exponentielle plus large construite à partir de fonctions orthogonales. L’hypothèse nulle correspond alors à l’annulation de certains coefficients de cette expansion.
+
+Dans le cas de la distribution Gamma, cette approche a été développée notamment par De Boeck, Thas, Rayner et Best (2011), qui construisent des fonctions orthogonales adaptées à la densité Gamma afin de définir des statistiques de test permettant de détecter différents types d’écarts au modèle.
+
+
+
+
+ 
+
+
+
+
+
+## 5. Tests basés sur les moments
+
+Certaines procédures d’adéquation reposent sur les relations spécifiques entre les moments théoriques de la distribution Gamma. Ces méthodes comparent les moments empiriques observés aux moments attendus sous l’hypothèse Gamma.
+
+Dans cette catégorie, on peut citer le test asymptotique proposé par Romantsova (1996), qui utilise les quatre premiers moments de la distribution pour construire une statistique de type $\chi^2$.
+
+Ces tests sont généralement simples à mettre en œuvre mais peuvent être sensibles aux valeurs extrêmes et présenter une puissance plus limitée face à certaines alternatives.
+
+
+
+## Test de Romantsova (1996)
+
+### Description
+Le test de Romantsova est un test d'adéquation asymptotique pour la distribution Gamma à deux paramètres, basé sur les quatre premiers moments de la distribution . L'article original a été publié en russe en 1993 dans "Statisticheskie Metody Otsenivaniya i Proverki Gipotez" (Perm), puis traduit en anglais en 1996 dans le *Journal of Mathematical Sciences*.
+
+### Référence 
+- Romantsova, Yu. V. (1996). "On an asymptotic goodness-of-fit test for a two-parameter gamma-distribution". *Journal of Mathematical Sciences*, 81(4), 2759-2765. (Traduction de l'article russe paru en 1993).
+
+### Hypothèses
+
+- **$H_0$** : Les données suivent une loi Gamma à deux paramètres
+
+- **$H_1$** : Les données ne suivent pas une loi Gamma
+
+### Statistique de test
+La statistique de test proposée par Romantsova fait intervenir les **quatre premiers moments** de la distribution. Bien que la formule exacte ne soit pas reproduite dans les résumés disponibles, le test appartient à la famille des tests du $\chi^2$ basés sur les moments, similaire aux approches développées par Dahiya et Gurland (1972) pour les distributions Gamma et exponentielles .
+
+
+
+où les classes sont construites de manière à utiliser l'information contenue dans les moments échantillonnaux.
+
+### Propriétés importantes
+- Le test utilise les quatre premiers moments de la distribution 
+
+- Il s'agit d'un test asymptotique (valable pour de grands échantillons)
+
+- La statistique est construite à partir d'une généralisation de la méthode du $\chi^2$ de Pearson
+
+- Le test est spécifiquement conçu pour l'hypothèse composite de la loi Gamma à deux paramètres
+
+### Distribution asymptotique
+Sous $H_0$, la statistique de test suit asymptotiquement une loi du $\chi^2$ avec un nombre de degrés de liberté dépendant du nombre de classes et du nombre de paramètres estimés [citation:4].
+
+### Règle de décision
+Pour un test de niveau $\alpha$, on rejette $H_0$ si :
+
+$$\chi^2 > \chi^2_{ddl, 1-\alpha}$$
+
+où $\chi^2_{ddl, 1-\alpha}$ est le quantile d'ordre $100(1-\alpha)\%$ de la loi du $\chi^2$.
+
+
+
+### Package R
+Il n'existe pas de package R dédié spécifiquement à ce test. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## 6. Tests basés sur des statistiques de dispersion ou des rapports d’estimateurs
+
+Une dernière famille regroupe des tests construits à partir de relations particulières entre certains estimateurs statistiques caractéristiques de la distribution Gamma.
+
+Un exemple important est le test proposé par Villaseñor et González-Estrada (2015), qui repose sur le rapport entre deux estimateurs de la variance. Cette approche conduit à une statistique de test simple dont la distribution asymptotique est normale, ce qui permet d’éviter l’utilisation d’un bootstrap paramétrique.
+
+
+
+## Test de Villaseñor & González-Estrada (2015)
+
+### Description
+Le test de Villaseñor & González-Estrada est un test d'adéquation pour la loi Gamma basé sur le rapport de deux estimateurs de la variance. Les auteurs proposent de nouveaux estimateurs des paramètres de la loi Gamma, qui sont utilisés pour construire une statistique de test dont la distribution asymptotique est normale, évitant ainsi le recours au bootstrap paramétrique.
+
+### Référence
+- Villaseñor, J. A. and González-Estrada, E. (2015). "A variance ratio test of fit for Gamma distributions". *Statistics and Probability Letters*, 96, 281-286.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi Gamma $G(a,b)$ avec paramètres inconnus
+
+- **$H_1$** : Les données ne suivent pas une loi Gamma
+
+### Statistique de test
+
+La statistique de test est basée sur le rapport :
+
+$$V_n = \frac{S_n^2}{\tilde{\sigma}_n^2}$$
+
+où :
+- $S_n^2 = \frac{1}{n-1}\sum_{i=1}^n (X_i - \bar{X}_n)^2$ est la variance empirique sans biais
+
+- $\tilde{\sigma}_n^2 = \bar{X}_n \tilde{b}_n$ est un estimateur de la variance
+
+- $\tilde{b}_n = \frac{1}{n}\sum_{i=1}^n (X_i - \bar{X}_n)(\log X_i - \overline{\log X}_n)$ est un estimateur du paramètre d'échelle $b$
+
+La statistique modifiée est :
+
+$$V_n^* = \sqrt{n\tilde{a}_n} (V_n - 1)$$
+
+où $\tilde{a}_n = \bar{X}_n / \tilde{b}_n$ est un estimateur du paramètre de forme $a$.
+
+### Propriétés importantes
+- Les estimateurs $\tilde{a}_n$ et $\tilde{b}_n$ ont des expressions analytiques explicites (pas de calcul itératif)
+- L'erreur quadratique moyenne de ces estimateurs est comparable à celle des estimateurs du maximum de vraisemblance
+- La statistique $V_n^*$ est invariante par changement d'échelle
+- Le test ne nécessite pas de bootstrap paramétrique, contrairement à la plupart des autres tests pour la loi Gamma
+
+### Distribution asymptotique
+Sous $H_0$, la statistique $V_n^*$ converge en distribution vers une loi normale :
+
+$$V_n^* \xrightarrow[n \to +\infty]{d} \mathcal{N}(0,2)$$
+
+Plus précisément, les auteurs montrent que :
+
+- $\lim_{a \to \infty} a\gamma^2 = 3/2$
+
+- $\lim_{a \to 0} a\gamma^2 = 2$
+
+où $\gamma^2$ est la variance asymptotique de $\sqrt{n}(V_n - 1)$.
+
+### Règle de décision
+Pour un test de niveau $\alpha \in (0,1)$, on rejette $H_0$ si :
+
+$$|V_n^*| > \sqrt{2} \, z_{1-\alpha/2}$$
+
+où $z_{1-\alpha/2}$ est le quantile d'ordre $100(1-\alpha/2)\%$ de la loi normale centrée réduite.
+
+Les valeurs critiques sont déterminées en maximisant la probabilité d'erreur de type I sur l'espace du paramètre de forme $a$, ce qui garantit un test conservateur.
+
+### Package R
+
+- **Package** : `goft`
+
+- **Fonction** : `gamma_test()`
+
+### Implémentation dans R
+
+
+```{r}
+# Installation du package si nécessaire
+if (!require(goft)) {
+  install.packages("goft")
+  library(goft)
+}
+
+# Exemple d'utilisation
+set.seed(123)
+x <- rgamma(100, shape = 3, rate = 0.5)  # Données suivant une loi Gamma
+resultat <- gamma_test(x)
+print(resultat)
+
+# Interprétation
+if(resultat$p.value < 0.05) { 
+  cat("p-value =", resultat$p.value, "Rejet H0\n")
+} else {
+  cat("p-value =", resultat$p.value, "Non Rejet H0\n")
+}
+```
+
+
+
+
+## 7. Procédures pour processus Gamma
+
+Enfin, certaines méthodes récentes ne testent pas seulement l’adéquation à une distribution Gamma pour des données indépendantes, mais examinent également les propriétés structurelles de processus Gamma.
+
+La procédure proposée par Verdier (2024) appartient à cette catégorie. Elle combine plusieurs tests successifs afin de vérifier trois propriétés fondamentales d’un processus Gamma homogène :
+
+- la stationnarité des incréments,
+- l’indépendance des incréments,
+- la distribution Gamma des incréments.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,1047 @@
+---
+title: 'Adaptation de la méthode de Grall Maes au processus de wiener avec dérive : Implémentation'
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+source("pont_brownien_Grall_Maes.R")
+source("estimate_parametres.R")
+source("tests_adequation_loi_normale.R")
+source("fonction_principale_wiener.R")
+source("fonction_monte_carlo_wiener.R")
+source("scenarios_wiener.R")
+source("simulate_rwa_wiener.R")
+source("simulate_rwa_gamma.R")
+
+```
+
+
+# Applications 
+
+## Temps réguliers
+
+
+```{r}
+# ============================================================================
+# Visualisation des trajectoires sous H0 et H1
+# ============================================================================
+
+library(ggplot2)
+set.seed(123)
+# H0 : Processus de Wiener avec dérive 
+
+t_reg <- seq(0, 50, by = 1)
+n <- length(t_reg) - 1
+mu_true <- 2
+sigma_true <- 1.5
+dt <- diff(t_reg)
+dx_wiener <- rnorm(n, mean = mu_true * dt, sd = sigma_true * sqrt(dt))
+x_wiener <- c(0, cumsum(dx_wiener))
+X_wiener <- data.frame(t = t_reg, x = x_wiener)
+
+# H1 : Processus Gamma 
+
+dx_gamma <- rgamma(n, shape = 0.5, rate = 0.5)
+x_gamma <- c(0, cumsum(dx_gamma))
+X_gamma <- data.frame(t = t_reg, x = x_gamma)
+
+# Graphique comparatif
+ggplot() +
+  geom_step(data = X_wiener, aes(x = t, y = x, color = "HWP"), linewidth = 1) +
+  geom_step(data = X_gamma, aes(x = t, y = x, color = "HGP"), linewidth = 1) +
+  labs(title = "Trajectoires sous H0 et H1",
+       x = "Temps", y = "Dégradation",
+       color = "Processus") +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+# Tests sur H0 (Wiener)
+
+print(gof.wp(X_wiener, "Shapiro"))
+print(gof.wp(X_wiener, "JarqueBera"))
+print(gof.wp(X_wiener, "Lilliefors"))
+print(gof.wp(X_wiener, "Agostino"))
+print(gof.wp(X_wiener, "Anderson"))
+print(gof.wp(X_wiener, "Cramer"))
+```
+
+
+
+```{r}
+# Tests sur H1 (Gamma)
+
+
+print(gof.wp(X_gamma, "Shapiro"))
+print(gof.wp(X_gamma, "JarqueBera"))
+print(gof.wp(X_gamma, "Lilliefors"))
+
+print(gof.wp(X_gamma, "Anderson"))
+print(gof.wp(X_gamma, "Cramer"))
+
+```
+
+
+
+
+
+# Inspections irrégulières
+
+```{r}
+library(ggplot2)
+
+# ============================================================================
+# Paramètres
+# ============================================================================
+
+mu_true   <- 0.5
+sigma_true <- 2.5
+n_points  <- 50
+T_max     <- 20
+
+set.seed(23)
+
+# ============================================================================
+# H0 : Processus de Wiener homogène (HWP)
+# ============================================================================
+
+t_irr_wiener <- sort(runif(n_points, 0, T_max))
+
+dt_irr_wiener <- diff(c(0, t_irr_wiener))
+
+dx_irr_wiener <- rnorm(
+  n_points,
+  mean = mu_true * dt_irr_wiener,
+  sd   = sigma_true * sqrt(dt_irr_wiener)
+)
+
+x_irr_wiener <- c(0, cumsum(dx_irr_wiener))
+
+X_irr_wiener <- data.frame(
+  t = c(0, t_irr_wiener),
+  x = x_irr_wiener
+)
+
+# ============================================================================
+# H1 : Processus Gamma homogène (HGP)
+# ============================================================================
+
+t_irr_gamma <- sort(runif(n_points, 0, T_max))
+
+dt_irr_gamma <- diff(c(0, t_irr_gamma))
+
+dx_irr_gamma <- rgamma(
+  n_points,
+  shape = 2 * dt_irr_gamma,
+  rate  = 1
+)
+
+x_irr_gamma <- c(0, cumsum(dx_irr_gamma))
+
+X_irr_gamma <- data.frame(
+  t = c(0, t_irr_gamma),
+  x = x_irr_gamma
+)
+
+# ============================================================================
+# Graphique comparatif
+# ============================================================================
+
+ggplot() +
+  
+  geom_point(
+    data = X_irr_wiener,
+    aes(x = t, y = x, color = "HWP (H0)"),
+    size = 1.5,
+    alpha = 0.7
+  ) +
+  
+  geom_line(
+    data = X_irr_wiener,
+    aes(x = t, y = x, color = "HWP (H0)"),
+    alpha = 0.6
+  ) +
+  
+  geom_point(
+    data = X_irr_gamma,
+    aes(x = t, y = x, color = "HGP (H1)"),
+    size = 1.5,
+    alpha = 0.7
+  ) +
+  
+  geom_line(
+    data = X_irr_gamma,
+    aes(x = t, y = x, color = "HGP (H1)"),
+    alpha = 0.6
+  ) +
+  
+  labs(
+    title = "Comparaison des trajectoires irrégulières sous H0 et H1",
+    x = "Temps",
+    y = "Dégradation",
+    color = "Processus"
+  ) +
+  
+  theme_minimal()
+```
+
+
+```{r}
+# Tests sur H0 (Wiener irrégulier)
+
+print(gof.wp(X_irr_wiener, "Shapiro"))
+print(gof.wp(X_irr_wiener, "JarqueBera"))
+print(gof.wp(X_irr_wiener, "Lilliefors"))
+
+print(gof.wp(X_irr_wiener, "Anderson"))
+print(gof.wp(X_irr_wiener, "Cramer"))
+```
+
+
+
+
+
+```{r}
+# ============================================================================
+# Visualisation des trajectoires irrégulières sous H0 et H1
+# ============================================================================
+
+library(ggplot2)
+
+mu_true <- 2
+sigma_true <- 1.5
+
+set.seed(46)
+
+# ---------------------------------------------------------------------------
+# H0 : Processus de Wiener homogène (HWP)
+# ---------------------------------------------------------------------------
+
+t_irr_wiener <- sort(runif(100, 0, 20))
+dt_irr_wiener <- diff(c(0, t_irr_wiener))
+
+dx_irr_wiener <- rnorm(
+  100,
+  mean = mu_true * dt_irr_wiener,
+  sd   = sigma_true * sqrt(dt_irr_wiener)
+)
+
+x_irr_wiener <- c(0, cumsum(dx_irr_wiener))
+
+X_irr_wiener <- data.frame(
+  t = c(0, t_irr_wiener),
+  x = x_irr_wiener
+)
+
+# ---------------------------------------------------------------------------
+# H1 : Processus Gamma homogène (HGP)
+# ---------------------------------------------------------------------------
+
+t_irr_gamma <- sort(runif(100, 0, 20))
+dt_irr_gamma <- diff(c(0, t_irr_gamma))
+
+dx_irr_gamma <- rgamma(
+  100,
+  shape = 1 * dt_irr_gamma,
+  rate  = 2
+)
+
+x_irr_gamma <- c(0, cumsum(dx_irr_gamma))
+
+X_irr_gamma <- data.frame(
+  t = c(0, t_irr_gamma),
+  x = x_irr_gamma
+)
+
+# ---------------------------------------------------------------------------
+# Graphique comparatif
+# ---------------------------------------------------------------------------
+
+ggplot() +
+  
+  geom_point(
+    data = X_irr_wiener,
+    aes(x = t, y = x, color = "HWP (H0)"),
+    size = 2
+  ) +
+  
+  geom_line(
+    data = X_irr_wiener,
+    aes(x = t, y = x, color = "HWP (H0)"),
+    alpha = 0.6
+  ) +
+  
+  geom_point(
+    data = X_irr_gamma,
+    aes(x = t, y = x, color = "HGP (H1)"),
+    size = 2
+  ) +
+  
+  geom_line(
+    data = X_irr_gamma,
+    aes(x = t, y = x, color = "HGP (H1)"),
+    alpha = 0.6
+  ) +
+  
+  labs(
+    title = "Comparaison des trajectoires irrégulières sous H0 et H1",
+    x = "Temps",
+    y = "Dégradation",
+    color = "Processus"
+  ) +
+  
+  theme_minimal()
+```
+
+
+
+```{r}
+# Tests sur H1 (Gamma irrégulier)
+
+print(gof.wp(X_irr_gamma, "Shapiro"))
+print(gof.wp(X_irr_gamma, "JarqueBera"))
+print(gof.wp(X_irr_gamma, "Lilliefors"))
+
+print(gof.wp(X_irr_gamma, "Anderson"))
+print(gof.wp(X_irr_gamma, "Cramer"))
+
+```
+
+
+
+# Points Observés  Vs Points Simulés
+
+```{r}
+#  Données 
+
+set.seed(42)
+t_obs <- c(0, 4.8, 4.81, 12.6, 25.4, 61, 88.7)
+mu <- 2
+sigma <- 1.5
+
+sim_mat <- simulate_wiener_rwa(times = t_obs, mu = mu, sigma = sigma, nsim = 1)
+x_obs <- sim_mat[, 1]
+
+bridge <- wiener_bridge(X = x_obs, t = t_obs, sigma = sigma)
+
+df_obs <- data.frame(t = t_obs, x = x_obs, type = "Points observés")
+t_reg <- seq(0, max(t_obs), by = bridge$teq)
+df_sim <- data.frame(t = t_reg, x = bridge$new_obs, type = "Points simulés")
+
+ggplot() +
+  geom_point(data = df_obs, aes(t, x, color = type), size = 2.5) +
+  geom_point(data = df_sim, aes(t, x, color = type), shape = 16, size = 2) +
+  scale_color_manual(values = c("Points observés" = "red", "Points simulés" = "blue")) +
+  labs(title = "Pont brownien : Points observés vs Points simulés",
+       x = "Temps", y = "X(t)") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.box.background = element_rect(fill = "white", color = "black"),
+        legend.title = element_blank())
+```
+
+
+# Étude du niveau et de la puissance des tests selon différents scénarios 
+
+## Cas 1 : Inspections régulières 
+
+```{r}
+library(ggplot2)
+N_sim <- 10000
+tmax <- 100
+mu_true <- 2
+sigma_true <- 1.5
+
+```
+
+## Niveau des tests
+
+
+```{r}
+set.seed(46)
+n_obs <- 25
+niveau_reg <- MC_test_wiener(N = N_sim, scenario = sim_Wiener_reg,
+                              mu = mu_true, sigma = sigma_true,
+                              n = n_obs, tmax = tmax)
+print(niveau_reg)
+```
+
+
+
+
+```{r}
+set.seed(46)
+n_obs <- 50
+niveau_reg <- MC_test_wiener(N = N_sim, scenario = sim_Wiener_reg,
+                              mu = mu_true, sigma = sigma_true,
+                              n = n_obs, tmax = tmax)
+print(niveau_reg)
+```
+
+
+```{r}
+set.seed(46)
+n_obs <- 100
+niveau_reg <- MC_test_wiener(N = N_sim, scenario = sim_Wiener_reg,
+                              mu = mu_true, sigma = sigma_true,
+                              n = n_obs, tmax = tmax)
+print(niveau_reg)
+```
+
+
+```{r}
+set.seed(46)
+n_obs <- 150
+niveau_reg <- MC_test_wiener(N = N_sim, scenario = sim_Wiener_reg,
+                              mu = mu_true, sigma = sigma_true,
+                              n = n_obs, tmax = tmax)
+print(niveau_reg)
+```
+
+
+## Puissance des tests
+
+```{r}
+n_obs <- 25
+
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+puissance_reg <- MC_test_wiener(N = N_sim, 
+                                 scenario = sim_Gamma_reg,
+                                 a = a_true, 
+                                 b = b_true,
+                                 n = n_obs, 
+                                 tmax = tmax)
+print(puissance_reg)
+```
+
+
+```{r}
+n_obs <- 50
+
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+puissance_reg <- MC_test_wiener(N = N_sim, 
+                                 scenario = sim_Gamma_reg,
+                                 a = a_true, 
+                                 b = b_true,
+                                 n = n_obs, 
+                                 tmax = tmax)
+print(puissance_reg)
+```
+
+```{r}
+n_obs <- 80
+
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+puissance_reg <- MC_test_wiener(N = N_sim, 
+                                 scenario = sim_Gamma_reg,
+                                 a = a_true, 
+                                 b = b_true,
+                                 n = n_obs, 
+                                 tmax = tmax)
+print(puissance_reg)
+```
+
+
+```{r}
+n_obs <- 100
+
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+puissance_reg <- MC_test_wiener(N = N_sim, 
+                                 scenario = sim_Gamma_reg,
+                                 a = a_true, 
+                                 b = b_true,
+                                 n = n_obs, 
+                                 tmax = tmax)
+print(puissance_reg)
+```
+
+```{r}
+n_obs <- 150 
+
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+puissance_reg <- MC_test_wiener(N = N_sim, 
+                                 scenario = sim_Gamma_reg,
+                                 a = a_true, 
+                                 b = b_true,
+                                 n = n_obs, 
+                                 tmax = tmax)
+print(puissance_reg)
+```
+
+
+```{r}
+n_obs <- 200
+
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+puissance_reg <- MC_test_wiener(N = N_sim, 
+                                 scenario = sim_Gamma_reg,
+                                 a = a_true, 
+                                 b = b_true,
+                                 n = n_obs, 
+                                 tmax = tmax)
+print(puissance_reg)
+```
+
+
+## Cas 1 : Inspections irrégulières
+
+```{r}
+set.seed(46)
+# ------------------------------------------------------------------------- 
+# Génération des temps d'observation irréguliers  
+# ------------------------------------------------------------------------- 
+t_obs_irreg <- sort(runif(n_obs, 0, tmax)) 
+stripchart(t_obs_irreg,  
+           method = "stack",    
+           pch = 19,           
+           col = "steelblue", 
+           main = "Répartition des temps d'inspection irréguliers", 
+           xlab = "Temps",  
+           ylab = "")
+```
+
+```{r}
+N_sim <- 10000
+tmax <- 100
+mu_true <- 2
+sigma_true <- 1.5
+```
+
+## Niveau des tests
+
+```{r}
+set.seed(46)
+n_obs <- 20
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+niveau_irreg <- MC_test_wiener_irreg(N = N_sim, 
+                                      scenario = sim_Wiener_irreg,
+                                      t_obs = t_obs_irreg,
+                                      mu = mu_true, 
+                                      sigma = sigma_true)
+
+print(niveau_irreg)
+```
+
+```{r}
+set.seed(46)
+n_obs <- 50 
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+niveau_irreg <- MC_test_wiener_irreg(N = N_sim, 
+                                      scenario = sim_Wiener_irreg,
+                                      t_obs = t_obs_irreg,
+                                      mu = mu_true, 
+                                      sigma = sigma_true)
+
+print(niveau_irreg)
+```
+
+
+
+```{r}
+set.seed(46)
+n_obs <- 80 
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+niveau_irreg <- MC_test_wiener_irreg(N = N_sim, 
+                                      scenario = sim_Wiener_irreg,
+                                      t_obs = t_obs_irreg,
+                                      mu = mu_true, 
+                                      sigma = sigma_true)
+
+print(niveau_irreg)
+```
+
+## Puissance des tests
+
+```{r}
+n_obs <- 20
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+puissance_irreg <- MC_test_wiener_irreg(N = N_sim, 
+                                         scenario = sim_Gamma_irreg,
+                                         t_obs = t_obs_irreg,
+                                         a = a_true, 
+                                         b = b_true)
+
+print(puissance_irreg)
+```
+
+
+```{r}
+n_obs <- 50
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+puissance_irreg <- MC_test_wiener_irreg(N = N_sim, 
+                                         scenario = sim_Gamma_irreg,
+                                         t_obs = t_obs_irreg,
+                                         a = a_true, 
+                                         b = b_true)
+
+print(puissance_irreg)
+
+```
+
+```{r}
+n_obs <- 80
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+puissance_irreg <- MC_test_wiener_irreg(N = N_sim, 
+                                         scenario = sim_Gamma_irreg,
+                                         t_obs = t_obs_irreg,
+                                         a = a_true, 
+                                         b = b_true)
+
+print(puissance_irreg)
+ 
+```
+
+
+```{r}
+n_obs <- 100
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+puissance_irreg <- MC_test_wiener_irreg(N = N_sim, 
+                                         scenario = sim_Gamma_irreg,
+                                         t_obs = t_obs_irreg,
+                                         a = a_true, 
+                                         b = b_true)
+
+print(puissance_irreg)
+
+```
+
+
+
+```{r}
+n_obs <- 150
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+puissance_irreg <- MC_test_wiener_irreg(N = N_sim, 
+                                         scenario = sim_Gamma_irreg,
+                                         t_obs = t_obs_irreg,
+                                         a = a_true, 
+                                         b = b_true)
+
+print(puissance_irreg)
+
+```
+
+```{r}
+n_obs <- 200
+set.seed(46)
+a_true <- 1
+b_true <- 2
+
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+puissance_irreg <- MC_test_wiener_irreg(N = N_sim, 
+                                         scenario = sim_Gamma_irreg,
+                                         t_obs = t_obs_irreg,
+                                         a = a_true, 
+                                         b = b_true)
+
+print(puissance_irreg)
+```
+
+
+
+# NHGP
+
+
+```{r}
+# HGP_reg
+sim_Wiener_reg_ <- function(n, mu, sigma, tmax = 100) {
+  t <- seq(0, tmax, length.out = n)
+  dt <- diff(t)
+  increments <- rnorm(n-1, mean = mu * dt, sd = sigma * sqrt(dt))
+  x <- c(0, cumsum(increments))
+  return(cbind(t, x))
+}
+
+# NHGP_reg
+sim_Gamma_reg_ <- function(n, A, b, tmax = 100) {
+  t <- seq(0, tmax, length.out = n)
+  increments <- numeric(n-1)
+  for (i in 2:n) {
+    shape <- b * (A(t[i]) - A(t[i-1]))
+    increments[i-1] <- rgamma(1, shape = shape, rate = 1)
+  }
+  x <- c(0, cumsum(increments))
+  return(cbind(t, x))
+}
+
+# NHGP_irreg
+sim_Gamma_irreg_ <- function(t_obs, A, b) {
+  t_full <- c(0, t_obs)
+  n <- length(t_full)
+  increments <- numeric(n-1)
+  for (i in 2:n) {
+    shape <- b * (A(t_full[i]) - A(t_full[i-1]))
+    increments[i-1] <- rgamma(1, shape = shape, rate = 1)
+  }
+  x <- c(0, cumsum(increments))
+  return(cbind(t_full, x))
+}
+```
+
+
+```{r}
+# Trajectoires
+library(ggplot2)
+
+set.seed(23)
+
+t_obs <- seq(0, 50, length.out = 100)
+mu_true <- 2
+sigma_true <- 1.5
+
+A <- function(t) t^2
+b_true <- 2
+```
+
+
+```{r}
+# HWP
+resultat_wiener <- simulate_wiener_rwa(times = t_obs, mu = mu_true, sigma = sigma_true, nsim = 1)
+x_wiener <- resultat_wiener[, 1]
+X_wiener <- data.frame(t = t_obs, x = x_wiener, Processus = "Wiener (H0)")
+
+
+# NHGP
+resultat_gamma <- sim_Gamma_reg_(n = length(t_obs), A = A, b = b_true, tmax = 50)
+x_gamma <- resultat_gamma[, 2]  # deuxième colonne = x
+X_gamma <- data.frame(t = t_obs, x = x_gamma, Processus = "Gamma non homogène (H1)")
+
+X_compare <- rbind(X_wiener, X_gamma)
+
+ggplot(X_compare, aes(x = t, y = x, color = Processus)) +
+  geom_step(linewidth = 1) +
+  labs(title = "Comparaison des trajectoires",
+       x = "Temps", y = "Dégradation") +
+  theme_minimal()
+```
+
+
+
+
+# Inspections régulières
+
+```{r}
+MC_test_wiener_reg_ <- function(N, scenario, n, tmax,
+                                mu = NULL, sigma = NULL, a = NULL, b = NULL,
+                                mu_log = NULL, sigma_log = NULL, A = NULL) {
+  une_iter <- function(i) {
+    if (!is.null(A) && !is.null(b)) {
+      X <- scenario(n = n, A = A, b = b, tmax = tmax)
+    } else if (!is.null(a) && !is.null(b)) {
+      X <- scenario(n = n, a = a, b = b, tmax = tmax)
+    } else if (!is.null(mu_log) && !is.null(sigma_log)) {
+      X <- scenario(n = n, mu_log = mu_log, sigma_log = sigma_log, tmax = tmax)
+    } else {
+      X <- scenario(n = n, mu = mu, sigma = sigma, tmax = tmax)
+    }
+    colnames(X) <- c("t", "x")
+    X <- as.data.frame(X)
+    res_s <- gof.wp(X, "Shapiro")
+    rej_s <- as.integer(res_s$p.value < 0.05)
+    res_j <- gof.wp(X, "JarqueBera")
+    rej_j <- as.integer(res_j$p.value < 0.05)
+    res_l <- gof.wp(X, "Lilliefors")
+    rej_l <- as.integer(res_l$p.value < 0.05)
+    res_g <- gof.wp(X, "Agostino")
+    rej_g <- as.integer(res_g$p.value < 0.05)
+    res_a <- gof.wp(X, "Anderson")
+    rej_a <- as.integer(res_a$p.value < 0.05)
+    res_c <- gof.wp(X, "Cramer")
+    rej_c <- as.integer(res_c$p.value < 0.05)
+    c(Shapiro = rej_s, JarqueBera = rej_j, Lilliefors = rej_l,
+      Agostino = rej_g, Anderson = rej_a, Cramer = rej_c)
+  }
+  res <- sapply(1:N, une_iter)
+  taux <- rowMeans(res)
+  return(taux)
+}
+```
+
+
+
+```{r}
+set.seed(46)
+tmax <- 40
+mu_true <- 2
+sigma_true <- 1.5
+A <- function(t) t^{2}
+b_true <- 0.2
+N <- 10000
+```
+
+
+```{r}
+set.seed(46)
+n_obs <- 25
+puissance_gamma_reg <- MC_test_wiener_reg_(N = N,
+                                           scenario = sim_Gamma_reg_,
+                                           n = n_obs,
+                                           tmax = tmax,
+                                           A = A,
+                                           b = b_true)
+print(puissance_gamma_reg)
+```
+
+
+```{r}
+set.seed(46)
+n_obs <- 50
+puissance_gamma_reg <- MC_test_wiener_reg_(N = N,
+                                           scenario = sim_Gamma_reg_,
+                                           n = n_obs,
+                                           tmax = tmax,
+                                           A = A,
+                                           b = b_true)
+print(puissance_gamma_reg)
+```
+
+
+```{r}
+set.seed(46)
+n_obs <- 80
+puissance_gamma_reg <- MC_test_wiener_reg_(N = N,
+                                           scenario = sim_Gamma_reg_,
+                                           n = n_obs,
+                                           tmax = tmax,
+                                           A = A,
+                                           b = b_true)
+print(puissance_gamma_reg)
+```
+
+
+```{r}
+set.seed(46)
+n_obs <- 100
+puissance_gamma_reg <- MC_test_wiener_reg_(N = N,
+                                           scenario = sim_Gamma_reg_,
+                                           n = n_obs,
+                                           tmax = tmax,
+                                           A = A,
+                                           b = b_true)
+print(puissance_gamma_reg)
+```
+```{r}
+set.seed(46)
+n_obs <- 150
+puissance_gamma_reg <- MC_test_wiener_reg_(N = N,
+                                           scenario = sim_Gamma_reg_,
+                                           n = n_obs,
+                                           tmax = tmax,
+                                           A = A,
+                                           b = b_true)
+print(puissance_gamma_reg)
+```
+
+
+
+
+# Inspections irrégulières
+
+```{r}
+MC_test_wiener_irreg_ <- function(N = 50, scenario, t_obs,
+                                 mu = NULL, sigma = NULL, a = NULL, b = NULL,
+                                 mu_log = NULL, sigma_log = NULL, A = NULL) {
+  
+  une_iter <- function(i) {
+    if (!is.null(A) && !is.null(b)) {
+      X <- scenario(t_obs = t_obs, A = A, b = b)
+    } else if (!is.null(a) && !is.null(b)) {
+      X <- scenario(t_obs = t_obs, a = a, b = b)
+    } else if (!is.null(mu_log) && !is.null(sigma_log)) {
+      X <- scenario(t_obs = t_obs, mu_log = mu_log, sigma_log = sigma_log)
+    } else {
+      X <- scenario(t_obs = t_obs, mu = mu, sigma = sigma)
+    }
+    
+    res_s <- gof.wp(X, "Shapiro")
+    rej_s <- as.integer(res_s$p.value < 0.05)
+    
+    res_j <- gof.wp(X, "JarqueBera")
+    rej_j <- as.integer(res_j$p.value < 0.05)
+    
+    res_l <- gof.wp(X, "Lilliefors")
+    rej_l <- as.integer(res_l$p.value < 0.05)
+    
+    res_g <- gof.wp(X, "Agostino")
+    rej_g <- as.integer(res_g$p.value < 0.05)
+    
+    res_a <- gof.wp(X, "Anderson")
+    rej_a <- as.integer(res_a$p.value < 0.05)
+    
+    res_c <- gof.wp(X, "Cramer")
+    rej_c <- as.integer(res_c$p.value < 0.05)
+    
+    c(Shapiro = rej_s, JarqueBera = rej_j, Lilliefors = rej_l, 
+      Anderson = rej_a, Cramer = rej_c, Agostino = rej_g)
+  }
+  
+  res <- sapply(1:N, une_iter)
+  taux <- rowMeans(res)
+  return(taux)
+}
+```
+
+## Puissance des tests 
+
+
+
+```{r}
+set.seed(46)
+n_obs <- 25
+n = 50
+tmax = 100
+t_obs_irreg <- sort(runif(n, 0, tmax))
+
+stripchart(t_obs_irreg,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Répartition des temps d'inspection irréguliers (n = 50)",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+```{r}
+set.seed(46)
+tmax <- 10
+mu_true <- 2
+sigma_true <- 1.5
+A <- function(t) t^{2}
+b_true <- 0.2
+N <- 10000
+```
+
+```{r}
+set.seed(46)
+n_obs <- 25
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+
+puissance_gamma <- MC_test_wiener_irreg_(N = N_sim, 
+                                         scenario = sim_Gamma_irreg_,
+                                         t_obs = t_obs_irreg,
+                                         A = A, 
+                                         b = b_true)
+
+print(puissance_gamma)
+```
+
+
+
+
+```{r}
+set.seed(46)
+n_obs <- 50
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+
+puissance_gamma <- MC_test_wiener_irreg_(N = N_sim, 
+                                         scenario = sim_Gamma_irreg_,
+                                         t_obs = t_obs_irreg,
+                                         A = A, 
+                                         b = b_true)
+
+print(puissance_gamma)
+```
+
+
+```{r}
+set.seed(46)
+n_obs <- 80
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+
+puissance_gamma <- MC_test_wiener_irreg_(N = N_sim, 
+                                         scenario = sim_Gamma_irreg_,
+                                         t_obs = t_obs_irreg,
+                                         A = A, 
+                                         b = b_true)
+
+print(puissance_gamma)
+```
+
+
+```{r}
+set.seed(46)
+n_obs <- 100
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+
+puissance_gamma <- MC_test_wiener_irreg_(N = N_sim, 
+                                         scenario = sim_Gamma_irreg_,
+                                         t_obs = t_obs_irreg,
+                                         A = A, 
+                                         b = b_true)
+
+print(puissance_gamma)
+```
+
+```{r}
+set.seed(46)
+n_obs <- 150
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+
+puissance_gamma <- MC_test_wiener_irreg_(N = N_sim, 
+                                         scenario = sim_Gamma_irreg_,
+                                         t_obs = t_obs_irreg,
+                                         A = A, 
+                                         b = b_true)
+
+print(puissance_gamma)
+```
+
+
+
+
+```{r}
+set.seed(46)
+n_obs <- 200
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+
+puissance_gamma <- MC_test_wiener_irreg_(N = N_sim, 
+                                         scenario = sim_Gamma_irreg_,
+                                         t_obs = t_obs_irreg,
+                                         A = A, 
+                                         b = b_true)
+
+print(puissance_gamma)
+```
+

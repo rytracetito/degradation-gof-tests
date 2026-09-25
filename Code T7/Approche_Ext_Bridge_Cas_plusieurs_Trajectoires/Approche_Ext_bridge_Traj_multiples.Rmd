@@ -1,0 +1,435 @@
+---
+title: 'Méthode Ext  Bridge : Trajectoires Multiples'
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+
+
+```{r}
+library(gofgamma)
+library(goft)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+```
+
+
+```{r}
+
+estimer <- function(liste_obs) {
+  n <- length(liste_obs)
+  Y_list <- vector("list", n)
+  s_list <- vector("list", n)
+  for (i in 1:n) {
+    t_i <- liste_obs[[i]]$t
+    X_i <- liste_obs[[i]]$X
+    Y_list[[i]] <- diff(X_i)   
+    s_list[[i]] <- diff(t_i)   
+  }
+  Y_all <- unlist(Y_list)
+  s_all <- unlist(s_list)
+  N <- length(Y_all)
+  mu_hat     <- sum(Y_all / s_all) / N
+  sigma2_hat <- sum((Y_all - s_all * mu_hat)^2 / s_all) / N
+  a_hat <- mu_hat^2 / sigma2_hat
+  b_hat <- sigma2_hat / mu_hat
+  list(a = a_hat, b = b_hat, mu = mu_hat, sigma2 = sigma2_hat, N = N)
+}
+```
+
+
+```{r}
+pgcd <- function(a, b) {
+  a <- abs(a); b <- abs(b)
+  while (b != 0) {
+    temp <- b
+    b <- a %% b
+    a <- temp
+  }
+  return(a)
+}
+```
+
+
+```{r}
+construire_grille <- function(liste_obs, digits = 1) {
+  t_obs <- unlist(lapply(liste_obs, function(df) df$t))
+  t_obs_round <- round(t_obs, digits)
+  t_obs_unique <- sort(unique(t_obs_round))
+  facteur <- 10^digits
+  t_obs_int <- round(t_obs_unique * facteur)
+  differences <- diff(t_obs_int)
+  delta_int <- differences[1]
+  if (length(differences) > 1) {
+    for (i in 2:length(differences)) delta_int <- pgcd(delta_int, differences[i])
+  }
+  pas_fine <- delta_int / facteur
+  t_max <- max(t_obs_unique)
+  t_fine <- seq(0, t_max, by = pas_fine)
+  m_i <- sapply(liste_obs, function(df) nrow(df) - 1)
+  n <- length(liste_obs)
+  m_bar <- sum(m_i) / n
+  list(t_star = t_obs_unique, m_star = length(t_obs_unique), m_bar = m_bar,
+       grille = t_fine, h_star = pas_fine, delta = pas_fine)
+}
+```
+
+
+```{r}
+pont_gamma_une_traj <- function(obs, grille, a) {
+  t <- obs$t; X <- obs$X
+  t_max_i <- max(t)
+  t_star <- grille[grille <= t_max_i]
+  n_star <- length(t_star) - 1
+  Y <- numeric(length(t_star))
+  Y[1] <- 0
+  if (n_star > 1) {
+    for (i in 2:n_star) {
+      inter <- max(t[t <= t_star[i]])
+      if (inter > t_star[i - 1]) {
+        t_inf <- inter; x_inf <- X[t == inter]
+      } else {
+        t_inf <- t_star[i - 1]; x_inf <- Y[i - 1]
+      }
+      t_sup <- min(t[t > t_star[i]])
+      x_sup <- X[t == t_sup]
+      y <- rbeta(1, a * (t_star[i] - t_inf), a * (t_sup - t_star[i]))
+      Y[i] <- x_inf + (x_sup - x_inf) * y
+    }
+  }
+  Y[length(t_star)] <- X[length(X)]
+  list(t = t_star, new_obs = Y)
+}
+```
+
+```{r}
+pont_gamma_multi <- function(liste_obs, a = NULL, b = NULL, digits = 1) {
+  n <- length(liste_obs)
+  est <- NULL
+  if (is.null(a) || is.null(b)) {
+    est <- estimer(liste_obs)
+    if (is.null(a)) a <- est$a
+    if (is.null(b)) b <- est$b
+  }
+  grille_info <- construire_grille(liste_obs, digits = digits)
+  trajectoires <- vector("list", n)
+  for (i in 1:n) {
+    trajectoires[[i]] <- pont_gamma_une_traj(liste_obs[[i]], grille_info$grille, a)
+  }
+  list(a = a, b = b, estimation = est, t_star = grille_info$t_star,
+       m_star = grille_info$m_star, m_bar = grille_info$m_bar,
+       h_star = grille_info$h_star, grille = grille_info$grille,
+       trajectoires = trajectoires)
+}
+```
+
+
+```{r}
+# Accroissements Delta X_i
+construire_Z <- function(res) {
+  increments_list <- lapply(res$trajectoires, function(tr) diff(tr$new_obs))
+  unlist(increments_list)
+}
+```
+
+# Application 1
+
+```{r}
+simuler_GP_multi <- function(liste_t, A, b) {
+  n <- length(liste_t)
+  liste_obs <- vector("list", n)
+  for (i in 1:n) {
+    t_i <- liste_t[[i]]
+    forme <- diff(A(t_i))
+    increments <- rgamma(length(forme), shape = forme, scale = b)
+    X_i <- c(0, cumsum(increments))
+    liste_obs[[i]] <- data.frame(t = t_i, X = X_i)
+  }
+  liste_obs
+}
+```
+
+## Cas 1
+
+```{r}
+set.seed(46)
+liste_t <- list(
+  c(0, 3, 8),
+  c(0, 2, 5, 9, 12),
+  c(0, 4, 7, 11, 15, 18, 22, 27, 33, 39, 45),
+  c(0, 2, 3, 5, 8, 9, 14, 15, 17, 20, 22, 25, 27, 30,
+    33, 46, 58)
+)
+A_hgp <- function(t) 5 * t
+liste_obs <- simuler_GP_multi(liste_t, A = A_hgp, b = 3)
+res <- pont_gamma_multi(liste_obs)
+Z1 <- construire_Z(res)
+par <- estimer(liste_obs)
+
+```
+
+## Visualisation
+
+```{r, fig.width=8, fig.height=16}
+
+xmax_global <- max(res$grille, sapply(liste_obs, function(df) max(df$t)))
+ymax_global <- max(
+  sapply(liste_obs, function(df) max(df$X)),
+  sapply(res$trajectoires, function(tr) max(tr$new_obs))
+)
+
+par(mfrow = c(4, 1))
+for (i in seq_along(liste_obs)) {
+  t_i <- liste_obs[[i]]$t
+  X_i <- liste_obs[[i]]$X
+  plot(NULL, xlim = c(0, xmax_global), ylim = c(0, ymax_global),
+       xlab = "Temps", ylab = "Degradation X(t)",
+       main = paste("Traj.", i))
+  lines(res$trajectoires[[i]]$t, res$trajectoires[[i]]$new_obs,
+        col = "blue", lwd = 1.5, lty = 2, type = "o", pch = 17, cex = 1.1)
+  lines(t_i, X_i, col = "red", lwd = 1.5, type = "o", pch = 16, cex = 1.4)
+}
+```
+
+# Test d'adéquation 
+
+## Test de HME
+```{r}
+res_henze <- test.HME1(Z1, a = 1, boot = 200, alpha = 0.05)
+res_henze
+```
+
+## Test de VGE
+```{r}
+res_vill <- gamma_test(Z1)
+res_vill
+```
+
+
+# Cas 2
+
+```{r}
+set.seed(46)
+liste_t <- list(
+  c(0, 3.518, 8.2),
+  c(0, 2.1, 5.4, 9.6, 12.3),
+  c(0, 4.2, 7.5, 11.1, 15.6, 18.3, 22.8, 27.45, 33.9, 39.2, 45.7),
+  c(0, 2.2, 3.4, 5.1, 8.3, 9.6, 11.2, 14.5, 15.8, 17.1, 20.4, 22.7, 25.3, 27.6, 30.9,
+    33.2, 35.5, 38.8, 40.1, 43.4, 46.7, 49.2, 51.5, 54.8, 57.1, 60.4, 63.7)
+)
+A_nhgp <- function(t) 8 * t^2
+liste_obs <- simuler_GP_multi(liste_t, A = A_nhgp, b = 0.1)
+res <- pont_gamma_multi(liste_obs, a = 8, b = 0.1, digits = 1)
+Z2 <- construire_Z(res)
+
+```
+
+
+```{r, fig.width=8, fig.height=16}
+
+xmax_global <- max(res$grille, sapply(liste_obs, function(df) max(df$t)))
+ymax_global <- max(
+  sapply(liste_obs, function(df) max(df$X)),
+  sapply(res$trajectoires, function(tr) max(tr$new_obs))
+)
+
+par(mfrow = c(4, 1))
+for (i in seq_along(liste_obs)) {
+  t_i <- liste_obs[[i]]$t
+  X_i <- liste_obs[[i]]$X
+  plot(NULL, xlim = c(0, xmax_global), ylim = c(0, ymax_global),
+       xlab = "Temps", ylab = "Degradation X(t)",
+       main = paste("Traj.", i))
+  lines(res$trajectoires[[i]]$t, res$trajectoires[[i]]$new_obs,
+        col = "blue", lwd = 1.5, lty = 2, type = "o", pch = 17, cex = 1.1)
+  lines(t_i, X_i, col = "red", lwd = 1.5, type = "o", pch = 16, cex = 1.4)
+}
+```
+
+
+
+
+## Test d'adéquation 
+
+```{r}
+res_henze <- test.HME1(Z2, a = 1, boot = 100, alpha = 0.05)
+res_henze
+```
+
+
+```{r}
+res_vill <- gamma_test(Z2)
+res_vill
+```
+# Application 2 : Donnée Laser
+
+
+```{r}
+library(SMRD.data)
+data("gaaslaser")
+```
+
+## Cas 1 : Inspections irrégulières (Fréquence  décroissante)
+
+```{r}
+temps_conserves <- c(0, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000)
+df_filtre <- gaaslaser[gaaslaser$hours %in% temps_conserves, ]
+df_filtre <- df_filtre[order(df_filtre$unit, df_filtre$hours), ]
+unites <- sort(unique(df_filtre$unit))
+liste_obs <- vector("list", length(unites))
+for (i in seq_along(unites)) {
+  sous <- df_filtre[df_filtre$unit == unites[i], ]
+  liste_obs[[i]] <- data.frame(t = sous$hours, X = sous$increase)
+}
+
+```
+
+```{r}
+plot(NULL, xlim = range(temps_conserves), ylim = c(0, max(sapply(liste_obs, function(df) max(df$X)))),
+     xlab = "Time", ylab = "Performance characteristic")
+for (i in seq_along(liste_obs)) {
+  lines(liste_obs[[i]]$t, liste_obs[[i]]$X, type = "o", pch = 16, cex = 0.7, lwd = 1)
+}
+abline(h = 10, lty = 2)
+```
+
+## Test d'adéquation
+
+```{r}
+set.seed(46)
+res <- pont_gamma_multi(liste_obs, digits = 0)
+Z3 <- construire_Z(res)
+
+```
+
+
+```{r}
+res_henze_Y <- test.HME1(Z3, a = 1, boot = 100, alpha = 0.05)
+print(res_henze_Y)
+```
+
+
+```{r}
+res_villasenor_Y <- gamma_test(Z3)
+print(res_villasenor_Y)
+```
+
+## Cas 2 : Inspections irrégulières (Fréquence  croissante)
+
+
+```{r}
+temps_conserves <- c(0, 1000, 1500, 2000, 2500, 3000, 3250, 3500, 3750, 4000)
+df_filtre <- gaaslaser[gaaslaser$hours %in% temps_conserves, ]
+df_filtre <- df_filtre[order(df_filtre$unit, df_filtre$hours), ]
+unites <- sort(unique(df_filtre$unit))
+liste_obs <- vector("list", length(unites))
+for (i in seq_along(unites)) {
+  sous <- df_filtre[df_filtre$unit == unites[i], ]
+  liste_obs[[i]] <- data.frame(t = sous$hours, X = sous$increase)
+}
+```
+
+
+```{r}
+plot(NULL, xlim = range(temps_conserves), ylim = c(0, max(sapply(liste_obs, function(df) max(df$X)))),
+     xlab = "Time", ylab = "Performance characteristic")
+for (i in seq_along(liste_obs)) {
+  lines(liste_obs[[i]]$t, liste_obs[[i]]$X, type = "o", pch = 16, cex = 0.7, lwd = 1)
+}
+abline(h = 10, lty = 2)
+```
+
+## Test d'adéquation 
+
+```{r}
+set.seed(46)
+res <- pont_gamma_multi(liste_obs, digits = 0)
+Z4 <- construire_Z(res)
+
+```
+
+
+```{r}
+res_henze <- test.HME1(Z4, a = 1, boot = 200, alpha = 0.05)
+print(res_henze)
+```
+
+```{r}
+res_vill <- gamma_test(Z4)
+res_vill
+```
+##  Cas 3
+
+```{r}
+
+temps_dec     <- c(0, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000)          
+temps_croiss  <- c(0, 1000, 1500, 2000, 2500, 3000, 3250, 3500, 3750, 4000)       
+
+unites <- sort(unique(gaaslaser$unit))
+n <- length(unites)
+
+unites_croiss <- unites[1:7]
+unites_dec    <- unites[8:15]
+
+liste_obs <- vector("list", n)
+idx <- 1
+
+for (u in unites_croiss) {
+  sous <- gaaslaser[gaaslaser$unit == u & gaaslaser$hours %in% temps_croiss, ]
+  sous <- sous[order(sous$hours), ]
+  liste_obs[[idx]] <- data.frame(t = sous$hours, X = sous$increase)
+  idx <- idx + 1
+}
+
+for (u in unites_dec) {
+  sous <- gaaslaser[gaaslaser$unit == u & gaaslaser$hours %in% temps_dec, ]
+  sous <- sous[order(sous$hours), ]
+  liste_obs[[idx]] <- data.frame(t = sous$hours, X = sous$increase)
+  idx <- idx + 1
+}
+```
+
+# Visualisation 
+
+```{r}
+couleurs <- c(rep("steelblue", length(unites_croiss)), rep("firebrick", length(unites_dec)))
+
+plot(NULL, xlim = c(0, max(gaaslaser$hours)), ylim = c(0, max(gaaslaser$increase)),
+     xlab = "Temps (heures)", ylab = "Degradation")
+
+for (i in seq_along(liste_obs)) {
+  lines(liste_obs[[i]]$t, liste_obs[[i]]$X,
+        col = couleurs[i], lwd = 1.3, type = "o", pch = 16, cex = 0.8)
+}
+
+```
+
+
+
+## Test d'adéquation 
+
+
+```{r}
+set.seed(46)
+res <- pont_gamma_multi(liste_obs, digits = 0)
+Z5 <- construire_Z(res)
+
+```
+
+
+```{r}
+# Test de HME
+res_henze <- test.HME1(Z5, a = 1, boot = 200, alpha = 0.05)
+res_henze
+
+```
+
+```{r}
+# Test de VGE
+res_vill <- gamma_test(Z5)
+res_vill
+
+```
+

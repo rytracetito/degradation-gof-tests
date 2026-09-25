@@ -1,0 +1,889 @@
+---
+title: "Simulation d'un processus gamma par Random Walk Approximation (RWA)"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+source("fonction_gof_gp.R")
+library(tidyr)
+library(ggplot2)
+set.seed(125)
+```
+
+# Fonction `simulate_gamma_rwa`
+
+## Objectif
+Simuler un processus gamma par la méthode **Random Walk Approximation (RWA)**.
+
+### Principe
+Le processus gamma est défini par :
+
+- \( X(0) = 0 \)
+
+- Les incréments \( X(t_{i+1}) - X(t_i) \) suivent une loi gamma de paramètres :
+
+  - **forme** = \( A(t_{i+1}) - A(t_i) \)
+  
+  - **rate** = 1 
+
+### Paramètres
+| Paramètre | Description |
+|-----------|-------------|
+| `times` | Vecteur strictement croissant des instants \( t_0 < t_1 < \dots < t_N \) |
+| `A` | Fonction croissante \( A(t) \) (cas non homogène) |
+| `a` | Scalaire pour le cas homogène \( A(t) = a \cdot t \) |
+| `nsim` | Nombre de trajectoires à simuler (entier positif) |
+
+### Ce que fait la fonction
+
+1. **Vérifie les entrées**
+   - `times` doit être un vecteur numérique strictement croissant
+   - `nsim` doit être un entier positif
+   - `A` ou `a` doit être fourni
+
+2. **Calcule les valeurs de \( A(t) \)** à chaque instant
+   - Si `A` est une fonction 
+   - Si `a` est un scalaire : \( A(t_i) = a \cdot t_i \)
+
+3. **Vérifie que \( A(t) \) est croissante** (sinon arrêt)
+
+4. **Génère les incréments**
+   - Calcule les différences \( \Delta A_i = A(t_{i+1}) - A(t_i) \)
+   - Pour chaque intervalle où \( \Delta A_i > 0 \) :
+     - Génère `nsim` incréments suivant \( \mathcal{G}(\text{shape} = \Delta A_i, \text{scale} = 1) \)
+   - Si \( \Delta A_i = 0 \), l'incrément est nul
+
+5. **Construit le processus**
+   - \( X(t_0) = 0 \)
+   - \( X(t_n) = \sum_{i=1}^{n} \Delta X_i \)
+
+### Retour
+
+Une matrice de dimension `(length(times) × nsim)` où :
+
+- Chaque colonne représente une trajectoire
+
+- Chaque ligne correspond à un instant \( t_i \)
+
+
+
+
+```{r}
+simulate_gamma_rwa <- function(times, A = NULL, a = NULL, nsim = 1, rate = 5) {
+  
+  if (!is.numeric(times) || !is.vector(times)) {
+    stop("'times' doit être un vecteur numérique.")
+  }
+  if (length(times) < 2) {
+    stop("'times' doit contenir au moins deux points.")
+  }
+  if (any(diff(times) <= 0)) {
+    stop("'times' doit être strictement croissant.")
+  }
+  if (!is.numeric(nsim) || nsim < 1 || nsim != floor(nsim)) {
+    stop("'nsim' doit être un entier positif.")
+  }
+  
+  if (!is.null(A) && is.function(A)) {
+    A_vals <- A(times)
+  } else if (!is.null(a) && is.numeric(a) && length(a) == 1) {
+    A_vals <- a * times
+  } else {
+    stop("Il faut fournir soit une fonction 'A', soit un scalaire 'a'.")
+  }
+  
+  if (any(diff(A_vals) <= 0)) {
+    stop("La fonction A doit être strictement croissante.")
+  }
+  
+  diff_A <- diff(A_vals)
+  n_intervals <- length(diff_A)
+  
+  increments <- matrix(rgamma(n_intervals * nsim, shape = rep(diff_A, each = nsim), rate = rate),
+                       nrow = n_intervals, ncol = nsim, byrow = TRUE)
+  
+  X <- rbind(rep(0, nsim), apply(increments, 2, cumsum))
+  
+  rownames(X) <- paste0("t", seq_along(times) - 1)
+  colnames(X) <- paste0("sim", seq_len(nsim))
+  
+  return(X)
+}
+```
+
+```{r}
+# Paramètres
+times <- seq(0, 100, by = 0.2)   # instants de 0 à 2, pas de 0.2
+a <- 2                         # A(t) = a * t
+nsim <- 2                      # 5 trajectoires
+rate <- 5                      
+
+# Simulation
+set.seed(123)                  # pour reproductibilité
+X <- simulate_gamma_rwa(times, a = a, nsim = nsim, rate = rate)
+
+# Affichage des résultats
+print(X)
+
+# Visualisation (optionnelle)
+matplot(times, X, type = "l", lwd = 2,
+        xlab = "Temps", ylab = "X(t)",
+        main = paste0("Processus gamma homogène : shape = ", a, "×t, rate = ", rate))
+```
+
+
+
+## Application 
+
+```{r}
+# Cas homogène
+t <- seq(0, 50, length.out = 100)
+
+b <- 1
+
+A_hom <- function(t) {
+  2 * t
+}
+
+moyenne_hom <- A_hom(t) / b
+variance_hom <- A_hom(t) / b^2
+
+X_hom <- simulate_gamma_rwa(t, A = A_hom, nsim = 5)
+
+df_hom <- as.data.frame(X_hom[, 1:5])
+df_hom$t <- t
+df_long_hom <- pivot_longer(df_hom, cols = starts_with("sim"), 
+                            names_to = "Trajectoire", 
+                            values_to = "X")
+
+ggplot() +
+  geom_step(data = df_long_hom, aes(x = t, y = X, color = Trajectoire), linewidth = 1) +
+  geom_line(aes(x = t, y = moyenne_hom, color = "Moyenne"), 
+            linewidth = 1.5, linetype = "dashed") +
+  geom_line(aes(x = t, y = variance_hom, color = "Variance"), 
+            linewidth = 1.5, linetype = "dotted") +
+  labs(title = "Cas homogène",
+       x = "t", y = "X(t)") +
+  theme_minimal()
+```
+
+```{r}
+# Cas non homogène
+t <- seq(0, 100, length.out = 1000)
+alpha <- 0.5
+b <- 1
+
+A_nhom <- function(t) {
+  t^alpha
+}
+
+moyenne_nhom <- A_nhom(t) / b
+variance_nhom <- A_nhom(t) / b^2
+
+X_nhom <- simulate_gamma_rwa(t, A = A_nhom, nsim = 5)
+
+df_nhom <- as.data.frame(X_nhom[, 1:5])
+df_nhom$t <- t
+df_long_nhom <- pivot_longer(df_nhom, cols = starts_with("sim"), 
+                             names_to = "Trajectoire", 
+                             values_to = "X")
+
+ggplot() +
+  geom_step(data = df_long_nhom, aes(x = t, y = X, color = Trajectoire), linewidth = 1) +
+  geom_line(aes(x = t, y = moyenne_nhom, color = "Moyenne"), 
+            linewidth = 1.5, linetype = "dashed") +
+  geom_line(aes(x = t, y = variance_nhom, color = "Variance"), 
+            linewidth = 1.5, linetype = "dotted") +
+  labs(title = "Cas non homogène",
+       x = "t", y = "X(t)") +
+  theme_minimal()
+```
+
+
+# Construction d'une grille fine contenant les temps d'observation
+
+## Fonction `pgcd`
+
+### Objectif
+Calculer le Plus Grand Commun Diviseur (PGCD) de deux nombres entiers.
+
+### Principe
+
+Utilise l'algorithme d'Euclide :
+
+- Tant que le deuxième nombre n'est pas nul, on remplace le premier par le deuxième, et le deuxième par le reste de la division du premier par le deuxième.
+
+- Le PGCD est le dernier reste non nul.
+
+### Ce que fait la fonction
+
+- Prend deux nombres `a` et `b` en entrée
+
+- Les transforme en valeurs absolues
+
+- Applique l'algorithme d'Euclide
+
+- Retourne le PGCD
+
+
+```{r}
+# Fonction pgcd
+ pgcd <- function(a, b) {
+  a <- abs(a)
+  b <- abs(b)
+  
+  while (b != 0) {
+    temp <- b
+    b <- a %% b
+    a <- temp
+  }
+  
+  return(a)
+}
+```
+
+# Cas où Tobs contient uniquement des entiers 
+
+## Fonction `construire_grille`
+
+### Objectif
+Construire une grille fine de temps qui contient exactement les temps d'observation.
+
+### Paramètres
+| Paramètre | Description |
+|-----------|-------------|
+| `t_obs` | Vecteur des temps d'observation (entiers, strictement croissant) |
+| `rho` | Facteur de raffinement (par défaut = 1) |
+
+### Valeur de retour
+
+| Élément | Description |
+|---------|-------------|
+| `t_fine` | Grille fine de temps |
+| `delta` | Pas de base (PGCD des différences) |
+| `pas_fine` | Pas de la grille fine (`delta / rho`) |
+| `idx_obs` | Indices des temps d'observation dans `t_fine` |
+| `n_fine` | Nombre de points dans la grille fine |
+| `n_obs` | Nombre de temps d'observation |
+
+### Principe
+1. Calculer le PGCD des différences entre les temps d'observation : `delta`
+2. Diviser `delta` par `rho` pour obtenir le pas de la grille fine : `pas_fine`
+3. Créer la grille fine de `0` à `max(t_obs)` avec ce pas
+4. Trouver les indices des temps d'observation dans cette grille
+
+### Ce que fait la fonction
+- Vérifie que `t_obs` est valide (numérique, au moins 2 points, strictement croissant) et que `rho` est positif
+- Calcule les différences entre temps consécutifs
+- Calcule `delta` = PGCD de toutes ces différences
+- Calcule `pas_fine = delta / rho`
+- Crée `t_fine` = suite de `0` à `max(t_obs)` avec un pas = `pas_fine`
+- Trouve `idx_obs` = positions des temps d'observation dans `t_fine`
+- Retourne une liste avec `t_fine`, `delta`, `pas_fine`, `idx_obs`, `n_fine`, `n_obs`
+
+
+
+
+```{r}
+
+construire_grille <- function(t_obs, rho = 1) {
+  
+  # Vérifications
+  if (!is.numeric(t_obs) || length(t_obs) < 2) {
+    stop("t_obs doit être un vecteur numérique d'au moins 2 éléments.")
+  }
+  if (any(diff(t_obs) <= 0)) {
+    stop("t_obs doit être strictement croissant.")
+  }
+  if (!is.numeric(rho) || rho <= 0) {
+    stop("rho doit être un nombre positif.")
+  }
+  
+  # Calcul du PGCD des différences
+  differences <- diff(t_obs)
+  
+  
+  # PGCD de toutes les différences
+  delta <- differences[1]
+  for (i in 2:length(differences)) {
+    delta <- pgcd(delta, differences[i])
+  }
+  
+  # Pas de la grille fine
+  pas_fine <- delta / rho
+  
+  # Création de la grille fine
+  t_max <- max(t_obs)
+  t_fine <- seq(0, t_max, by = pas_fine)
+  
+  # Trouver les indices correspondant aux temps d'observation
+  idx_obs <- match(t_obs, t_fine)
+  
+  
+  return(list(
+    t_fine = t_fine,
+    delta = delta,
+    pas_fine = pas_fine,
+    idx_obs = idx_obs,
+    n_fine = length(t_fine),
+    n_obs = length(t_obs)
+  ))
+}
+```
+
+# Fonction  simuler_gamma_obs
+
+### Objectif
+Simuler un processus gamma et extraire les valeurs exactes aux temps d'observation.
+
+### Paramètres
+
+| Paramètre | Description |
+|-----------|-------------|
+| `t_obs` | Vecteur des temps d'observation (entiers, strictement croissant) |
+| `A` | Fonction de forme \( A(t) \) (cas non homogène) |
+| `a` | Scalaire pour le cas homogène \( A(t) = a \cdot t \) |
+| `b` | Paramètre de taux (rate) de la loi gamma |
+| `rho` | Facteur de raffinement (par défaut = 1) |
+| `nsim` | Nombre de trajectoires à simuler |
+
+### Ce que fait la fonction
+
+1. Construit la grille fine avec `construire_grille(t_obs, rho)`
+
+2. Définit \( A(t) \) :
+
+   - Si `A` est fournie, l'utiliser comme fonction de forme
+   
+   - Sinon si `a` est fourni, utiliser \( A(t) = a \cdot t \)
+   
+3. Simule le processus gamma sur la grille fine avec `simulate_gamma_rwa`
+
+4. Extrait les valeurs aux indices correspondant aux temps d'observation
+
+5. Retourne une liste contenant les observations, la trajectoire fine, les indices et la grille
+
+### Valeur de retour
+
+| Élément | Description |
+|---------|-------------|
+| `obs` | Data frame avec les temps `t_obs` et les valeurs observées |
+| `traj_fine` | Data frame avec la grille fine et la trajectoire complète |
+| `indices` | Positions des temps d'observation dans la grille fine |
+| `grille` | Liste contenant les informations de la grille construite |
+
+
+
+
+
+```{r}
+
+simuler_gamma_obs<- function(t_obs, A = NULL, a = NULL, b = 1, rho = 1, nsim = 1) {
+  
+  # Construction de la grille fine
+  grille <- construire_grille(t_obs, rho)
+  
+  # Fonction  A(t)
+  if (!is.null(A) && is.function(A)) {
+    A_func <- A
+  } else if (!is.null(a) && is.numeric(a) && length(a) == 1) {
+    A_func <- function(t) a * t
+  } else {
+    stop("Il faut fournir soit une fonction 'A', soit un scalaire 'a'.")
+  }
+  
+  # Simulation sur la grille fine
+  X_fine <- simulate_gamma_rwa(times = grille$t_fine, 
+                               A = A_func, 
+                               nsim = nsim)
+  
+  # Extraction des observations
+  if (nsim == 1) {
+    X_obs <- X_fine[grille$idx_obs, 1]
+    obs <- data.frame(t = t_obs, X = X_obs)
+    traj_fine <- data.frame(t = grille$t_fine, X = X_fine[, 1])
+  } else {
+    X_obs <- X_fine[grille$idx_obs, ]
+    obs <- data.frame(t = t_obs, X_obs)
+    colnames(obs)[-1] <- paste0("sim", 1:nsim)
+    traj_fine <- data.frame(t = grille$t_fine, X_fine)
+  }
+  
+  return(list(
+    obs = obs,
+    traj_fine = traj_fine,
+    indices = grille$idx_obs,
+    grille = grille
+  ))
+}
+```
+
+## Application
+
+```{r}
+# Temps d'observation 
+t_obs <- c(0, 4, 10, 16, 20, 26, 30, 36, 40, 46, 50)
+
+diff(t_obs)
+
+# Fonction A(t)
+
+A <- function(t) {
+  3 * t^0.5
+}
+
+# Simulation
+resultat <- simuler_gamma_obs(
+  t_obs = t_obs,
+  A = A,
+  b = 1,
+  rho = 1,  
+  nsim = 1
+)
+
+resultat$obs
+head(resultat$traj_fine)
+
+# Visualisation
+ggplot() +
+  geom_line(data = resultat$traj_fine,      
+            aes(x = t, y = X), 
+            color = "grey", linewidth = 1) +
+  geom_point(data = resultat$obs,           
+             aes(x = t, y = X), 
+             color = "red", size = 2) +
+  labs(title = "Trajectoire du processus gamma",
+       subtitle = paste("delta =", resultat$grille$delta, 
+                        ", pas_fine =", resultat$grille$pas_fine),
+       x = "t", y = "X(t)") +
+  theme_minimal()
+
+```
+
+
+###  Cas où rho = 10
+
+```{r}
+
+resultat_fine <- simuler_gamma_obs(
+  t_obs = t_obs,
+  A = function(t) {
+    3 * t^0.5
+  },
+  b = 1,
+  rho = 10,
+  nsim = 1
+)
+
+
+
+# Visualisation
+ggplot() +
+  geom_line(data = resultat_fine$traj_fine, 
+            aes(x = t, y = X), 
+            color = "grey", linewidth = 1) +
+  geom_point(data = resultat_fine$obs, 
+             aes(x = t, y = X), 
+             color = "red", size = 2) +
+  labs(title = "Trajectoire du processus gamma (rho = 10)",
+       subtitle = paste("delta =", resultat_fine$grille$delta, 
+                        ", pas_fine =", resultat_fine$grille$pas_fine),
+       x = "t", y = "X(t)") +
+  theme_minimal()
+```
+
+
+# Simulation et test d'adéquation
+
+```{r}
+
+# Temps d'observation 
+t_obs <- sort(c(0, 3, 15, 30, 35, 51, 108, 216, 222, 230, 457))
+
+# Simulation du processus gamma
+set.seed(125)
+resultat <- simuler_gamma_obs(
+  t_obs = t_obs,
+  A = function(t){
+    3 * t
+  },
+  b = 1,
+  rho = 10,
+  nsim = 1
+)
+
+# Données pour les tests
+data <- resultat$obs
+head(data)
+
+# Tests d'adéquation sur les observations
+
+gof.gp(data, "KS")
+gof.gp(data, "VGE")
+
+gof.gp(data, "Henze")
+gof.gp(data, "BET")
+```
+
+
+
+# Cas où Tobs contient des nombres décimaux 
+
+## Fonction `construire_grille_dec`
+
+### Objectif
+Construire une grille fine de temps contenant tout les temps d'observation décimaux.
+
+### Paramètres
+| Paramètre | Description |
+|-----------|-------------|
+| `t_obs` | Vecteur des temps d'observation (décimaux, strictement croissant) |
+| `rho` | Facteur de raffinement (par défaut = 1) |
+| `digits` | Nombre de chiffres après la virgule pour arrondir (par défaut = 3) |
+
+### Valeur de retour
+| Élément | Description |
+|---------|-------------|
+| `t_fine` | Grille fine de temps |
+| `delta` | Pas de base (PGCD des différences après transformation) |
+| `pas_fine` | Pas de la grille fine (`delta / rho`) |
+| `idx_obs` | Indices des temps d'observation dans `t_fine` |
+| `t_obs` | Temps d'observation  |
+| `n_fine` | Nombre de points dans la grille fine |
+| `n_obs` | Nombre de temps d'observation |
+
+### Principe
+1. Compter le nombre de décimales de chaque temps d'observation
+2. Si le nombre maximum de décimales $\leq 3$ :
+   - Multiplier par $10^{\text{max\_dec}}$ pour obtenir des entiers
+   - Calculer le PGCD des différences
+   - Diviser par le facteur pour obtenir `delta`
+3. Sinon (trop de décimales) :
+   - Arrondir les temps à `digits` chiffres
+   - Supprimer les doublons
+   - Multiplier par $10^{\text{digits}}$ pour obtenir des entiers
+   - Calculer le PGCD des différences
+   - Diviser par le facteur pour obtenir `delta`
+4. Calculer `pas_fine = delta / rho`
+5. Créer `t_fine` : suite de `0` à `max(t_obs)` avec un pas = `pas_fine`
+6. Trouver `idx_obs` : positions des temps d'observation dans `t_fine`
+
+
+
+
+```{r}
+construire_grille_dec <- function(t_obs, rho = 1, digits = 3) {
+  
+  if (!is.numeric(t_obs) || length(t_obs) < 2) {
+    stop("t_obs doit être un vecteur numérique d'au moins 2 éléments.")
+  }
+  if (any(diff(t_obs) <= 0)) {
+    stop("t_obs doit être strictement croissant.")
+  }
+  if (!is.numeric(rho) || rho <= 0) {
+    stop("rho doit être un nombre positif.")
+  }
+  
+  n_dec <- function(x) {
+    if (grepl("\\.", as.character(x))) {
+      return(nchar(strsplit(as.character(x), "\\.")[[1]][2]))
+    } else {
+      return(0)
+    }
+  }
+  
+  max_dec <- max(sapply(t_obs, n_dec))
+  
+  if (max_dec <= 3) {
+    facteur <- 10^max_dec
+    t_obs_int <- round(t_obs * facteur)
+    diff_int <- diff(t_obs_int)
+    delta_int <- diff_int[1]
+    for (i in 2:length(diff_int)) {
+      delta_int <- pgcd(delta_int, diff_int[i])
+    }
+    delta <- delta_int / facteur
+  } else {
+    t_obs <- round(t_obs, digits)
+    t_obs <- unique(t_obs)
+    facteur <- 10^digits
+    t_obs_int <- round(t_obs * facteur)
+    diff_int <- diff(t_obs_int)
+    delta_int <- diff_int[1]
+    for (i in 2:length(diff_int)) {
+      delta_int <- pgcd(delta_int, diff_int[i])
+    }
+    delta <- delta_int / facteur
+  }
+  
+  pas_fine <- delta / rho
+  t_max <- max(t_obs)
+  t_fine <- seq(0, t_max, by = pas_fine)
+  
+  idx_obs <- match(round(t_obs / pas_fine, 10), round(t_fine / pas_fine, 10))
+  
+  list(
+    t_fine = t_fine,
+    delta = delta,
+    pas_fine = pas_fine,
+    idx_obs = idx_obs,
+    t_obs_original = t_obs,
+    n_fine = length(t_fine),
+    n_obs = length(t_obs)
+  )
+}
+```
+
+## Fonction `simuler_gamma_obs_dec`
+
+### Objectif
+Simuler un processus gamma et extraire les valeurs exactes aux temps d'observation décimaux.
+
+### Paramètres
+| Paramètre | Description |
+|-----------|-------------|
+| `t_obs` | Vecteur des temps d'observation (décimaux, strictement croissant) |
+| `A` | Fonction de forme \( A(t) \) (cas non homogène) |
+| `a` | Scalaire pour le cas homogène \( A(t) = a \cdot t \) |
+| `b` | Paramètre de taux (rate) de la loi gamma |
+| `rho` | Facteur de raffinement (par défaut = 1) |
+| `nsim` | Nombre de trajectoires à simuler |
+| `digits` | Nombre de chiffres après la virgule pour arrondir (par défaut = 3) |
+
+### Valeur de retour
+| Élément | Description |
+|---------|-------------|
+| `obs` | Data frame avec les temps `t_obs` et les valeurs observées |
+| `traj_fine` | Data frame avec la grille fine et la trajectoire complète |
+| `indices` | Positions des temps d'observation dans la grille fine |
+| `grille` | Liste contenant les informations de la grille construite |
+
+### Ce que fait la fonction
+1. Construit la grille fine avec `construire_grille_dec(t_obs, rho, digits)`
+2. Définit \( A(t) \) :
+   - Si `A` est fournie, l'utiliser comme fonction de forme
+   - Sinon si `a` est fourni, utiliser \( A(t) = a \cdot t \)
+3. Simule le processus gamma sur la grille fine avec `simulate_gamma_rwa`
+4. Extrait les valeurs aux indices correspondant aux temps d'observation
+5. Retourne une liste contenant les observations, la trajectoire fine, les indices et la grille
+
+```{r}
+simuler_gamma_obs_dec <- function(t_obs, A = NULL, a = NULL, b = 1, rho = 1, nsim = 1, digits = 3) {
+  
+  grille <- construire_grille_dec(t_obs, rho, digits)
+  
+  if (!is.null(A) && is.function(A)) {
+    A_func <- A
+  } else if (!is.null(a) && is.numeric(a) && length(a) == 1) {
+    A_func <- function(t) {
+      a * t
+      }
+  } else {
+    stop("Il faut fournir soit une fonction 'A', soit un scalaire 'a'.")
+  }
+  
+  X_fine <- simulate_gamma_rwa(times = grille$t_fine, A = A_func, nsim = nsim)
+  
+  if (nsim == 1) {
+    X_obs <- X_fine[grille$idx_obs, 1]
+    obs <- data.frame(t = grille$t_obs, X = X_obs)
+    traj_fine <- data.frame(t = grille$t_fine, X = X_fine[, 1])
+  } else {
+    X_obs <- X_fine[grille$idx_obs, ]
+    obs <- data.frame(t = grille$t_obs, X_obs)
+    colnames(obs)[-1] <- paste0("sim", 1:nsim)
+    traj_fine <- data.frame(t = grille$t_fine, X_fine)
+  }
+  
+  list(
+    obs = obs,
+    traj_fine = traj_fine,
+    indices = grille$idx_obs,
+    grille = grille
+  )
+}
+```
+
+
+```{r}
+
+# Application 1 
+t_obs_dec <- c(0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
+
+resultat1 <- simuler_gamma_obs_dec(
+  t_obs = t_obs_dec,
+  A = function(t){
+    t
+    },
+  b = 1,
+  rho = 10,
+  nsim = 1,
+  digits = 3
+)
+
+resultat1$grille$delta
+resultat1$grille$pas_fine
+
+# Visualisation
+ggplot() +
+  geom_line(data = resultat1$traj_fine, 
+            aes(x = t, y = X), 
+            color = "grey", linewidth = 1) +
+  geom_point(data = resultat1$obs, 
+             aes(x = t, y = X), 
+             color = "red", size = 2) +
+  labs(title = "Trajectoire - décimaux simples",
+       subtitle = paste("delta =", resultat1$grille$delta, ", pas_fine =", resultat1$grille$pas_fine),
+       x = "t", y = "X(t)") +
+  theme_minimal()
+
+```
+
+
+
+
+```{r}
+
+# Application 2 
+t_obs_complexe <- c(0, 1.33333, 2.66667, 4.0, 5.33333, 6.66667)
+
+resultat2 <-simuler_gamma_obs_dec(
+  t_obs = t_obs_complexe,
+  A = function(t) {
+    t
+    },
+  b = 1,
+  rho = 100,
+  nsim = 1,
+  digits = 2
+)
+
+# Vérifier les temps après arrondi
+resultat2$grille$t_obs
+head(resultat2$grille$t_fine)  
+# Visualisation
+ggplot() +
+  geom_line(data = resultat2$traj_fine, 
+            aes(x = t, y = X), 
+            color = "grey", linewidth = 1) +
+  geom_point(data = resultat2$obs, 
+             aes(x = t, y = X), 
+             color = "red", size = 2) +
+  labs(title = "Trajectoire - décimaux complexes (arrondi à 2 chiffres)",
+       subtitle = paste("delta =", resultat2$grille$delta, ", pas_fine =", resultat2$grille$pas_fine),
+       x = "t", y = "X(t)") +
+  theme_minimal()
+
+```
+
+
+
+
+
+# Fonction principale qui gère les deux cas 
+
+## Fonction `simuler_gamma`
+
+### Objectif
+Simuler un processus gamma avec gestion automatique des temps d'observation (entiers ou décimaux).
+
+### Paramètres
+| Paramètre | Description |
+|-----------|-------------|
+| `t_obs` | Vecteur des temps d'observation |
+| `A` | Fonction de forme \( A(t) \) (cas non homogène) |
+| `a` | Scalaire pour le cas homogène \( A(t) = a \cdot t \) |
+| `b` | Paramètre de taux (rate) de la loi gamma |
+| `rho` | Facteur de raffinement (par défaut = 1) |
+| `nsim` | Nombre de trajectoires à simuler |
+| `digits` | Nombre de chiffres après la virgule pour arrondir (par défaut = 3) |
+
+### Valeur de retour
+| Élément | Description |
+|---------|-------------|
+| `obs` | Data frame avec les temps `t_obs` et les valeurs observées |
+| `traj_fine` | Data frame avec la grille fine et la trajectoire complète |
+| `grille` | Liste contenant les informations de la grille construite |
+
+### Ce que fait la fonction
+1. Détermine le type des temps d'observation :
+   - Si tous les temps sont des entiers  utilise `construire_grille()`
+   - Sinon  utilise `construire_grille_dec()` avec arrondi à `digits` chiffres
+2. Définit \( A(t) \) :
+   - Si `A` est fournie, l'utilise comme fonction de forme
+   - Sinon si `a` est fourni, utilise \( A(t) = a \cdot t \)
+3. Simule le processus gamma sur la grille fine avec `simulate_gamma_rwa`
+4. Extrait les valeurs aux indices correspondant aux temps d'observation
+5. Retourne une liste contenant les observations, la trajectoire fine et la grille
+
+
+
+```{r}
+
+simuler_gamma <- function(t_obs, A = NULL, a = NULL, b = 1, rho = 10, nsim = 1, digits = 3) {
+  
+  # Vérifier si t_obs contient des entiers
+  if (all(t_obs == round(t_obs))) {
+    grille <- construire_grille(t_obs, rho)
+    t_obs_clean <- t_obs  # garder les temps originaux
+  } else {
+    grille <- construire_grille_dec(t_obs, rho, digits)
+    t_obs_clean <- grille$t_obs  # utiliser les temps arrondis
+  }
+  
+  if (!is.null(A) && is.function(A)) {
+    A_func <- A
+  } else if (!is.null(a) && is.numeric(a) && length(a) == 1) {
+    A_func <- function(t) a * t
+  } else {
+    stop("Il faut fournir soit une fonction 'A', soit un scalaire 'a'.")
+  }
+  
+  X_fine <- simulate_gamma_rwa(times = grille$t_fine, A = A_func, nsim = nsim)
+  
+  if (nsim == 1) {
+    X_obs <- X_fine[grille$idx_obs, 1]
+    obs <- data.frame(t = t_obs_clean, X = X_obs)
+    traj_fine <- data.frame(t = grille$t_fine, X = X_fine[, 1])
+  } else {
+    X_obs <- X_fine[grille$idx_obs, ]
+    obs <- data.frame(t = t_obs_clean, X_obs)
+    colnames(obs)[-1] <- paste0("sim", 1:nsim)
+    traj_fine <- data.frame(t = grille$t_fine, X_fine)
+  }
+  
+  return(list(obs = obs, traj_fine = traj_fine, grille = grille))
+}
+
+```
+
+```{r}
+# Application 
+
+# Ex 1
+t_obs1 <- c(0, 5, 10, 15, 20, 25, 30)
+res1 <-simuler_gamma(
+  t_obs = t_obs1,
+  A = function(t){
+    3*t^0.5
+    },
+  b = 1,
+  rho = 10,
+  nsim = 1
+)
+res1$obs
+head(res1$traj_fine)
+
+# Ex 2
+t_obs2 <- c(0, 0.5, 1.0, 1.5, 2.0)
+res2 <- simuler_gamma(t_obs2, a = 1, b = 1)
+res2$obs
+
+# Ex 3
+t_obs3 <- c(0, 1.33333, 2.66667, 4.0)
+res3 <- simuler_gamma(t_obs3, a = 1, b = 1, digits = 2)
+res3$obs
+```
+

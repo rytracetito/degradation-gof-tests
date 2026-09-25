@@ -1,0 +1,305 @@
+
+# Puissance et différents plans d'échantillonnage
+
+```{r}
+# fonction pour la construction de tobs
+
+make_tobs <- function(n_obs, tmax = 50, p = c(4,3,2,1)) {
+  k <- round(n_obs * p / sum(p))
+  k[1] <- k[1] + (n_obs - sum(k))
+  t1 <- seq(0, tmax/4, length.out = k[1])
+  t2 <- seq(tmax/4, tmax/2, length.out = k[2] + 1)[-1]
+  t3 <- seq(tmax/2, 3*tmax/4, length.out = k[3] + 1)[-1]
+  t4 <- seq(3*tmax/4, tmax, length.out = k[4] + 1)[-1]
+  t_obs <- c(t1, t2, t3, t4)
+  t_obs <- unique(round(t_obs, 10))
+  t_obs <- t_obs[t_obs > 0]
+  return(t_obs)
+}
+```
+
+
+
+
+
+
+# NHWP 
+
+## Fréquence décroissante
+
+```{r}
+# Plus de points au début 
+set.seed(46)
+nobs = 20
+t1 <-c(0, make_tobs(nobs, tmax = tmax, p = c(4, 2, 1, 1)))
+
+stripchart(t1,
+           method="stack",
+           pch=19,
+           col="steelblue",
+           main="fréquence décroissante",
+           xlab="Temps",
+           ylab="Observations")
+```
+
+
+```{r}
+set.seed(46)
+nobs = 20
+t1 <- make_tobs(nobs, tmax = tmax, p = c(4, 2, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t1,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+
+
+```{r}
+set.seed(46)
+nobs = 50
+t1 <- make_tobs(nobs, tmax = tmax, p = c(4, 2, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t1,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+
+```{r}
+set.seed(46)
+nobs = 80
+t1 <- make_tobs(nobs, tmax = tmax, p = c(4, 2, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t1,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+```{r}
+set.seed(46)
+nobs = 100
+t1 <- make_tobs(nobs, tmax = tmax, p = c(4, 2, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t1,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+
+
+```{r}
+set.seed(46)
+nobs = 150
+t1 <- make_tobs(nobs, tmax = tmax, p = c(4, 2, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t1,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+```{r}
+set.seed(46)
+nobs = 200
+t1 <- make_tobs(nobs, tmax = tmax, p = c(4, 2, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t1,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+## Fréquence Croissante
+
+
+```{r}
+set.seed(46)
+nobs = 15
+tmax = 50
+t3 <- c(0, make_tobs(nobs, tmax = tmax, p = c(1, 1, 2, 4)))
+stripchart(t3,
+           method="stack",
+           pch=19,
+           col="steelblue",
+           main="Fréquence croissante",
+           xlab="Temps",
+           ylab="Observations")
+```
+
+
+
+
+
+```{r}
+set.seed(46)
+nobs = 20
+t2 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 2, 4))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t2,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+```{r}
+set.seed(46)
+nobs = 50
+t2 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 2, 4))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t2,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+```{r}
+set.seed(46)
+nobs = 80
+t2 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 2, 4))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t2,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+```{r}
+set.seed(46)
+nobs = 100
+t2 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 2, 4))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t2,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+
+```{r}
+set.seed(46)
+nobs = 150
+t2 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 2, 4))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t2,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+```{r}
+set.seed(46)
+nobs = 200
+t2 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 2, 4))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t2,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+
+
+## Fréquence régulière
+
+```{r}
+set.seed(46)
+nobs = 15
+tmax = 50
+t4 <- c(0, make_tobs(nobs, tmax = tmax, p = c(1, 1, 1, 1)))
+stripchart(t4,
+           method="stack",
+           pch=19,
+           col="steelblue",
+           main="Fréquence régulière",
+           xlab="Temps",
+           ylab="Observations")
+```
+
+
+```{r}
+set.seed(46)
+nobs = 20
+t3 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t3,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+
+```{r}
+set.seed(46)
+nobs = 50
+t3 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t3,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+```{r}
+set.seed(46)
+nobs = 80
+t3 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t3,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+```{r}
+set.seed(46)
+nobs = 100
+t3 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t3,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+```{r}
+set.seed(46)
+nobs = 150
+t3 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t3,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+
+
+```{r}
+set.seed(46)
+nobs = 200
+t3 <- make_tobs(nobs, tmax = tmax, p = c(1, 1, 1, 1))
+
+puissance_nonhom <- monte_carlo_test(N = N, scenario = scenario_wiener_nonhom, t_obs = t3,
+                                      a = a, b = b,
+                                      test_normalite = c("shapiro", "anderson", "agostino"))
+print(puissance_nonhom)
+```
+
+

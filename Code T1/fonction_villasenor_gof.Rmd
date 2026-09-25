@@ -1,0 +1,200 @@
+---
+title: "Implémentation de la fonction villasenor_gof"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+  
+
+```{r}
+villasenor_gof <- function(x, t, a_ref = NULL, dt_eq = NULL) {
+  
+  if (!require(goft)) {
+    install.packages("goft")
+    library(goft)
+  }
+  
+  gamma_bridge <- function(t, x, a, dt_eq) {
+    
+    if(any(diff(t) <= 0)) stop("Les temps doivent être strictement croissants")
+    if(a <= 0) stop("a doit être positif")
+    
+    Np <- floor(max(t) / dt_eq)
+    t_eq <- seq(dt_eq, Np * dt_eq, by = dt_eq)
+    x_eq <- numeric(Np)
+    
+    for (i in 1:Np) {
+      
+      ti <- t_eq[i]
+      
+      sup_i <- which(t >= ti)[1]
+      t_sup <- t[sup_i]
+      x_sup <- x[sup_i]
+      
+      if (sup_i == 1) {
+        t_inf <- 0
+        x_inf <- 0
+      } else {
+        t_inf_candidate <- t[sup_i - 1]
+        
+        if (t_inf_candidate > (i - 1) * dt_eq) {
+          t_inf <- t_inf_candidate
+          x_inf <- x[sup_i - 1]
+        } else {
+          t_inf <- (i - 1) * dt_eq
+          x_inf <- if (i > 1) x_eq[i - 1] else 0
+        }
+      }
+      
+      alpha1 <- a * max(ti - t_inf, 1e-10)
+      alpha2 <- a * max(t_sup - ti, 1e-10)
+      
+      if (alpha1 <= 0 || alpha2 <= 0) {
+        stop(paste("Paramètres bêta non positifs:", alpha1, alpha2))
+      }
+      
+      y <- rbeta(1, alpha1, alpha2)
+      x_eq[i] <- x_inf + (x_sup - x_inf) * y
+    }
+    
+    return(data.frame(time = t_eq, value = x_eq))
+  }
+  
+  tri_sample <- function(dt, dx, dt_eq) {
+    
+    N <- length(dt)
+    
+    dt_c <- dt
+    dx_c <- dx
+    
+    dt_s <- numeric(N)
+    dx_s <- numeric(N)
+    
+    max_i <- which.max(dt_c)
+    dt_s[1] <- dt_c[max_i]
+    dx_s[1] <- dx_c[max_i]
+    
+    dt_c <- dt_c[-max_i]
+    dx_c <- dx_c[-max_i]
+    
+    for (i in 2:N) {
+      
+      cum_time <- sum(dt_s[1:(i - 1)])
+      diffs <- (cum_time + dt_c) - i * dt_eq
+      
+      valid <- which(diffs >= 0)
+      
+      if (length(valid) > 0) {
+        choix <- valid[which.min(diffs[valid])]
+      } else {
+        choix <- which.max(diffs)
+      }
+      
+      dt_s[i] <- dt_c[choix]
+      dx_s[i] <- dx_c[choix]
+      
+      dt_c <- dt_c[-choix]
+      dx_c <- dx_c[-choix]
+    }
+    
+    return(list(dt = dt_s, dx = dx_s))
+  }
+  
+  estimer_a <- function(t, x) {
+    
+    dt <- diff(t)
+    dx <- diff(x)
+    
+    m_hat <- sum(dx) / sum(dt)
+    n_hat <- sum((dx - m_hat * dt)^2) /
+             (sum(dt) - sum(dt^2) / sum(dt))
+    
+    return(m_hat^2 / n_hat)
+  }
+  
+  dt <- diff(t)
+  dx <- diff(x)
+  
+  tol <- 1e-8
+  if (all(abs(dt - dt[1]) < tol)) {
+    resultat <- gamma_test(dx)
+  } else {
+     if(is.null(dt_eq)) dt_eq <- max(t)/length(dt)
+    
+    tri <- tri_sample(dt, dx, dt_eq)
+    t_tri <- c(0, cumsum(tri$dt))
+    x_tri <- c(0, cumsum(tri$dx))
+    
+    if(is.null(a_ref)) a_ref <- estimer_a(t_tri, x_tri)
+    
+    interp <- gamma_bridge(t_tri, x_tri, a_ref, dt_eq)
+    dx_eq <- diff(c(0, interp$value))
+    
+    resultat <- gamma_test(dx_eq)
+  }
+  
+  if(resultat$p.value < 0.05) {
+    cat("p-value =", resultat$p.value, "Rejet H0\n")
+  } else {
+    cat("p-value =", resultat$p.value, "Non Rejet H0\n")
+  }
+  
+  return(resultat)
+}
+```
+
+
+```{r}
+
+# Application 1: Processus Gamma régulier
+set.seed(123)
+N <- 50
+dt_eq <- 1
+a_true <- 3
+b_true <- 0.5
+
+t_reg <- seq(0, N * dt_eq, by = dt_eq)
+x_reg <- numeric(length(t_reg))
+for (i in 2:length(t_reg)) {
+  x_reg[i] <- x_reg[i-1] + rgamma(1, shape = a_true * dt_eq, rate = b_true)
+}
+
+resultat1 <- villasenor_gof(x = x_reg, t = t_reg)
+print(resultat1)
+```
+
+
+```{r}
+
+# Application 2: Processus Gamma irrégulier
+set.seed(123)
+N <- 50
+dt_eq <- 1
+a_true <- 2
+b_true <- 1
+
+t_irr <- sort(runif(N, 0, N * dt_eq))
+t_irr <- c(0, t_irr)
+x_irr <- numeric(length(t_irr))
+for(i in 2:length(t_irr)){
+  x_irr[i] <- x_irr[i-1] + rgamma(1, shape = a_true * (t_irr[i]-t_irr[i-1]), rate = b_true)
+}
+
+resultat2 <- villasenor_gof(x = x_irr, t = t_irr, dt_eq = 1)
+print(resultat2)
+```
+
+
+```{r}
+# Application 4: Données réelles Fatigue
+library(nlme)
+data(Fatigue)
+path1 <- subset(Fatigue, Path == 1)
+t_real <- path1$cycles * 1e6
+x_real <- path1$relLength
+
+resultat4 <- villasenor_gof(x = x_real, t = t_real, dt_eq = 10000)
+print(resultat4)
+
+```
+

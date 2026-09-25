@@ -1,0 +1,557 @@
+---
+title: "Test de Ghislain Verdier (2024): Implémentation"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+
+# Chargement des packages nécessaires
+library(MASS)
+library(npcp)
+library(copula)
+library(statmod)
+library(goftest)
+library(goft)
+library(gofgamma)
+library(future)
+library(future.apply)
+```
+
+```{r}
+rm(list=ls())
+
+# CHARGEMENT DES DONNÉES
+
+dimen <- 1
+fich <- paste("Dim_", dimen, ".csv", sep="")
+X <- read.table(fich, sep=";", header=FALSE, dec=",")
+```
+
+
+# Visualisation
+
+```{r}
+matplot(X,type='l')
+```
+
+
+```{r}
+moy = apply(X,1,mean,na.rm=TRUE)
+moy
+plot(moy)
+```
+
+
+```{r}
+va=apply(X,1,var,na.rm=TRUE)
+va
+plot(va)
+```
+
+
+```{r}
+rapport = va/moy
+rapport
+plot(rapport[2:length(rapport)],type='l')
+```
+
+```{r}
+X_process <- X
+X_process
+```
+
+
+```{r}
+Y_process=rbind(0,X_process[2:10,]-X_process[1:9,])
+Y_process
+```
+
+
+```{r}
+
+# Fonction de forme puissance
+A <- function(t, a1, a2) {
+  return(a1 * t^a2)
+}
+
+# Vraisemblance 
+vraisemblance <- function(param, Y, t) {
+  l_t <- length(t)
+  delta_A <- A(t[2:l_t], param[1], param[2]) - A(t[1:(l_t-1)], param[1], param[2])
+  Y <- Y[-1, ]
+  res <- suppressWarnings(
+    -sum( delta_A*log(param[3]) - log(gamma(delta_A)) + (delta_A - 1)*log(Y) - param[3]*Y ))
+  return(res)
+}
+# Pont gamma : Approche d'Edith Grall
+gamma_bridge <- function(X, t, a) {
+  n <- length(X) - 1
+  t_n <- t[length(t)]
+  teq <- t_n / n
+  t_star <- seq(0, t_n, teq)
+  
+  Y <- numeric(length(t_star))
+  Y[1] <- 0
+  
+  for (i in 2:n) {
+    inter <- max(t[t <= t_star[i]])
+    if (inter > t_star[i-1]) {
+      t_inf <- inter
+      x_inf <- X[t == inter]
+    } else {
+      t_inf <- t_star[i-1]
+      x_inf <- Y[i-1]
+    }
+    t_sup <- min(t[t > t_star[i]])
+    x_sup <- X[t == t_sup]
+    y <- rbeta(1, a * (t_star[i] - t_inf), a * (t_sup - t_star[i]))
+    Y[i] <- x_inf + (x_sup - x_inf) * y
+  }
+  Y[n+1] <- X[n+1]
+  
+  return(list(teq = teq, new_obs = Y))
+}
+```
+
+
+
+```{r}
+# ============================================================================
+# PARAMÈTRES DE LA PROCÉDURE
+# ============================================================================
+
+n <- nrow(X) - 1           # nombre d'observations par trajectoire
+T <- ncol(X)               # nombre de trajectoires
+t <- seq(0, 0.9, 0.1)      # instants d'observation
+
+B <- 2000                  # nombre de réplications bootstrap
+alpha_G <- 0.017           # niveau pour chaque test individuel
+n_tot <- n * T             # nombre total d'observations
+
+# Paramètres pour les tests
+l <- 2                     # pour le test de stationnarité
+d <- 3                     # pour le test d'indépendance
+```
+
+
+```{r}
+# ============================================================================
+#  ESTIMATION MLE
+# ============================================================================
+
+# Calcul des incréments
+Y_process <- rbind(0, X[2:10, ] - X[1:9, ])
+
+# Optimisation MLE
+res <- optim(c(1000, 1, 200), vraisemblance, Y = Y_process, t = t)
+a1_est <- res$par[1]
+a2_est <- res$par[2]
+b_est <- res$par[3]
+
+cat("Estimations MLE:")
+cat("  a1 =", a1_est)
+cat("  a2 =", a2_est)
+cat("  b  =", b_est)
+```
+
+
+```{r}
+# ============================================================================
+#  TRANSFORMATION DE CINLAR
+# ============================================================================
+
+t_new <- A(t, a1_est, a2_est)
+Z <- b_est * X     
+```
+
+
+```{r}
+# ============================================================================
+#  PROCÉDURE DU PONT GAMMA
+# ============================================================================
+
+Z_fin <- matrix(0, nrow = n+1, ncol = T)
+bridge_result <- gamma_bridge(Z[, 1], t_new, 1)
+teq <- bridge_result$teq
+
+for (k in 1:T) {
+  Z_fin[, k] <- gamma_bridge(Z[, k], t_new, 1)$new_obs
+}
+
+# Incréments finaux
+X_final <- c(t(Z_fin[2:(n+1), ] - Z_fin[1:n, ]))
+head(X_final)
+```
+
+# Test de Ghislain
+
+```{r}
+# ============================================================================
+# TEST DE STATIONNARITÉ 
+# ============================================================================
+
+Stat_pval <- suppressWarnings(stDistAutocop(X_final, l)$p.value)
+cat("p-value stationnarité =", Stat_pval)
+```
+
+
+```{r}
+# ============================================================================
+#  TEST D'INDÉPENDANCE
+# ============================================================================
+
+d_sim <- serialIndepTestSim(length(X_final), 3)
+test <- serialIndepTest(X_final, d_sim)
+Indep_pval <- test$global.statistic.pvalue
+cat("p-value indépendance =", Indep_pval)
+```
+
+
+```{r}
+# ============================================================================
+#  TEST GOF POUR LOI GAMMA
+# ============================================================================
+
+gof_gamma_test <- function(X, B = 2000, alpha = 0.017) {
+  
+  henze <- function(X, inter) {
+    n <- length(X)
+    alpha <- inter[1]
+    beta <- inter[2]
+    Y <- beta * X
+    prod <- Y %*% t(Y)
+    somme <- outer(Y, Y, "+")
+    a_param <- 1
+    Tstat <- sum((prod - alpha * somme + alpha^2) / (somme + a_param) +
+                 (2 * prod - alpha * somme) / (somme + a_param)^2 +
+                 2 * prod / (somme + a_param)^3) / n
+    return(Tstat)
+  }
+  
+  n_tot <- length(X)
+  alpha_G <- alpha
+  alpha_G1 <- alpha_G / 2
+  alpha_G2 <- 1 - alpha_G / 2
+  alpha_G3 <- 1 - alpha_G
+  
+  inter <- fitdistr(X, "gamma")$estimate
+  
+  B6 <- numeric(B)
+  B9 <- numeric(B)
+  for (j in 1:B) {
+    Y <- rgamma(n_tot, inter[1], inter[2])
+    inter_bis <- fitdistr(Y, "gamma")$estimate
+    B6[j] <- gamma_test(Y)$statistic
+    B9[j] <- henze(Y, inter_bis)
+  }
+  
+  B_Vil_1 <- quantile(B6, alpha_G1)
+  B_Vil_2 <- quantile(B6, alpha_G2)
+  B_Hen <- quantile(B9, alpha_G3)
+  
+  Vil <- gamma_test(X)$statistic
+  Hen <- henze(X, inter)
+  
+  reject_Vil <- (Vil <= B_Vil_1) || (Vil >= B_Vil_2)
+  reject_Hen <- (Hen >= B_Hen)
+  
+  return(c(reject_Vil, reject_Hen))
+}
+```
+
+```{r}
+res <- gof_gamma_test(X_final, B = 2000, alpha = 0.017)
+```
+
+
+
+
+
+
+
+```{r}
+# ============================================================================
+# GRAPHIQUE
+# ============================================================================
+
+plot(t, X[,1], type="l", xlab="Time", ylab="Cumulative degradation", 
+     main="Electronic devices", ylim=c(0, 0.6))
+for (i in 2:ncol(X)) {
+  lines(t, X[,i])
+}
+for (i in 1:ncol(X)) {
+  points(t, X[,i], pch=19)
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Niveau et puissance des tests
+
+```{r}
+library(MASS)
+library(npcp)
+library(copula)
+library(statmod)
+library(goft)
+
+rm(list = ls())
+
+A <- function(t, a1, a2) {
+  return(a1 * t^a2)
+}
+
+vraisemblance <- function(param, Y, t) {
+  l_t <- length(t)
+  delta_A <- A(t[2:l_t], param[1], param[2]) - A(t[1:(l_t-1)], param[1], param[2])
+  Y <- Y[-1, ]
+  if (any(delta_A <= 0)) return(1e300)
+  res <- suppressWarnings(
+    -sum(delta_A * log(param[3]) - log(gamma(delta_A)) + (delta_A - 1) * log(Y) - param[3] * Y)
+  )
+  return(res)
+}
+
+gamma_bridge <- function(X, t, a) {
+  n <- length(X) - 1
+  t_n <- t[length(t)]
+  teq <- t_n / n
+  t_star <- seq(0, t_n, teq)
+  Y <- numeric(length(t_star))
+  Y[1] <- 0
+  for (i in 2:n) {
+    if (any(abs(t_star[i] - t) < 1e-8)) {
+      Y[i] <- X[t == t_star[i]]
+      next
+    }
+    inter <- max(t[t <= t_star[i]])
+    if (inter > t_star[i-1]) {
+      t_inf <- inter
+      x_inf <- X[t == inter]
+    } else {
+      t_inf <- t_star[i-1]
+      x_inf <- Y[i-1]
+    }
+    t_sup <- min(t[t > t_star[i]])
+    x_sup <- X[t == t_sup]
+    y <- rbeta(1, a * (t_star[i] - t_inf), a * (t_sup - t_star[i]))
+    Y[i] <- x_inf + (x_sup - x_inf) * y
+  }
+  Y[n+1] <- X[n+1]
+  return(list(teq = teq, new_obs = Y))
+}
+
+henze_stat <- function(X, inter) {
+  n <- length(X)
+  alpha <- inter[1]
+  beta <- inter[2]
+  Y <- beta * X
+  prod <- Y %*% t(Y)
+  somme <- outer(Y, Y, "+")
+  a_param <- 1
+  Tstat <- sum((prod - alpha * somme + alpha^2) / (somme + a_param) +
+               (2 * prod - alpha * somme) / (somme + a_param)^2 +
+               2 * prod / (somme + a_param)^3) / n
+  return(Tstat)
+}
+
+run_test_both <- function(data, t_obs, B = 2000, alpha_G = 0.017) {
+  n <- nrow(data) - 1
+  T_traj <- ncol(data)
+  t <- t_obs
+  
+  Y_process <- rbind(0, data[2:(n+1), ] - data[1:n, ])
+  inc_vals <- as.vector(Y_process[-1, ])
+  moy_inc <- mean(inc_vals)
+  var_inc <- var(inc_vals)
+  b_init <- var_inc / moy_inc
+  a1_init <- (moy_inc * b_init) / (t[length(t)]^1)
+  a2_init <- 1
+  res <- tryCatch(
+    optim(c(a1_init, a2_init, b_init), vraisemblance, Y = Y_process, t = t),
+    error = function(e) list(par = c(1,1,1))
+  )
+  a1_est <- res$par[1]
+  a2_est <- res$par[2]
+  b_est <- res$par[3]
+  
+  t_new <- A(t, a1_est, a2_est)
+  Z <- b_est * data
+  
+  Z_fin <- matrix(0, nrow = n+1, ncol = T_traj)
+  bridge_temp <- gamma_bridge(Z[, 1], t_new, 1)
+  teq <- bridge_temp$teq
+  for (k in 1:T_traj) {
+    Z_fin[, k] <- gamma_bridge(Z[, k], t_new, 1)$new_obs
+  }
+  X_final <- c(t(Z_fin[2:(n+1), ] - Z_fin[1:n, ]))
+  
+  stat_pval <- suppressWarnings(stDistAutocop(X_final, l = 2)$p.value)
+  if (stat_pval < alpha_G) return(c(1,1))
+  
+  d_sim <- serialIndepTestSim(length(X_final), 3)
+  indep_test <- serialIndepTest(X_final, d_sim)
+  indep_pval <- indep_test$global.statistic.pvalue
+  if (indep_pval < alpha_G) return(c(1,1))
+  
+  gamma_params <- fitdistr(X_final, "gamma")$estimate
+  shape_hat <- gamma_params[1]
+  rate_hat <- gamma_params[2]
+  
+  B_Hen <- numeric(B)
+  for (j in 1:B) {
+    Y_boot <- rgamma(length(X_final), shape = shape_hat, rate = rate_hat)
+    inter_boot <- fitdistr(Y_boot, "gamma")$estimate
+    B_Hen[j] <- henze_stat(Y_boot, inter_boot)
+  }
+  crit_Hen <- quantile(B_Hen, 1 - alpha_G)
+  Hen_obs <- henze_stat(X_final, gamma_params)
+  reject_Hen <- ifelse(Hen_obs >= crit_Hen, 1, 0)
+  
+  Vil_obs <- abs(as.numeric(gamma_test(X_final)$statistic))
+  B_Vil <- numeric(B)
+  for (j in 1:B) {
+    Y_boot <- rgamma(length(X_final), shape = shape_hat, rate = rate_hat)
+    B_Vil[j] <- abs(as.numeric(gamma_test(Y_boot)$statistic))
+  }
+  crit_low <- quantile(B_Vil, alpha_G/2)
+  crit_high <- quantile(B_Vil, 1 - alpha_G/2)
+  reject_Vil <- ifelse(Vil_obs <= crit_low || Vil_obs >= crit_high, 1, 0)
+  
+  return(c(reject_Hen, reject_Vil))
+}
+
+estimate_power_both <- function(Nsim, generate_data, B = 2000, alpha_G = 0.017) {
+  reject_Hen <- numeric(Nsim)
+  reject_Vil <- numeric(Nsim)
+  for (i in 1:Nsim) {
+    sim <- generate_data()
+    data <- sim$data
+    t_obs <- sim$t_obs
+    res <- run_test_both(data, t_obs, B, alpha_G)
+    reject_Hen[i] <- res[1]
+    reject_Vil[i] <- res[2]
+  }
+  return(c(mean(reject_Hen), mean(reject_Vil)))
+}
+
+# Scenario H0 : gamma homogène (forme puissance)
+scenario_H0 <- function() {
+  T_traj <- 5
+  n <- 10
+  t_obs <- seq(0, 10, length.out = n+1)
+  a1 <- 0.5
+  a2 <- 1
+  b <- 1
+  data <- matrix(0, nrow = n+1, ncol = T_traj)
+  for (k in 1:T_traj) {
+    inc <- rgamma(n, shape = a1 * (t_obs[2:(n+1)]^a2 - t_obs[1:n]^a2), rate = b)
+    data[, k] <- c(0, cumsum(inc))
+  }
+  return(list(data = data, t_obs = t_obs))
+}
+
+# Scenario incréments dépendants (MA(1))
+scenario_dependent_increments <- function() {
+  T_traj <- 5
+  n <- 10
+  t_obs <- seq(0, 10, length.out = n+1)
+  a1 <- 0.5
+  a2 <- 2
+  b <- 1
+  delta_A <- a1 * (t_obs[2:(n+1)]^a2 - t_obs[1:n]^a2)
+  data <- matrix(0, nrow = n+1, ncol = T_traj)
+  for (k in 1:T_traj) {
+    Z <- rgamma(n+1, shape = c(delta_A[1], diff(c(0, delta_A))), rate = b)
+    Y <- Z[-1] + Z[-(n+1)]
+    data[, k] <- c(0, cumsum(Y))
+  }
+  return(list(data = data, t_obs = t_obs))
+}
+
+# Scenario non homogène (a2=1.5)
+scenario_non_homogeneous <- function() {
+  T_traj <- 5
+  n <- 10
+  t_obs <- seq(0, 10, length.out = n+1)
+  a1 <- 0.5
+  a2 <- 1.5
+  b <- 1
+  data <- matrix(0, nrow = n+1, ncol = T_traj)
+  for (k in 1:T_traj) {
+    inc <- rgamma(n, shape = a1 * (t_obs[2:(n+1)]^a2 - t_obs[1:n]^a2), rate = b)
+    data[, k] <- c(0, cumsum(inc))
+  }
+  return(list(data = data, t_obs = t_obs))
+}
+
+# Scenario extended gamma (Cinlar) avec fonction de forme puissance (a2 variable)
+# Ici on fixe a2 = 1 (linéaire) mais on peut le changer
+scenario_extended_gamma <- function(a2 = 1) {
+  T_traj <- 5
+  n <- 10
+  t_obs <- seq(0, 10, length.out = n+1)
+  a1 <- 0.5
+  b <- function(t) ifelse(t <= 5, 1, 10)
+  data <- matrix(0, nrow = n+1, ncol = T_traj)
+  for (k in 1:T_traj) {
+    inc <- numeric(n)
+    for (i in 1:n) {
+      shape <- a1 * (t_obs[i+1]^a2 - t_obs[i]^a2)
+      rate <- b((t_obs[i] + t_obs[i+1])/2)
+      inc[i] <- rgamma(1, shape = shape, rate = rate)
+    }
+    data[, k] <- c(0, cumsum(inc))
+  }
+  return(list(data = data, t_obs = t_obs))
+}
+
+# Scenario random effect avec fonction de forme puissance (a2 variable)
+scenario_random_effect <- function(a2 = 1, d = 1) {
+  T_traj <- 5
+  n <- 10
+  t_obs <- seq(0, 10, length.out = n+1)
+  a1 <- 0.5
+  data <- matrix(0, nrow = n+1, ncol = T_traj)
+  for (k in 1:T_traj) {
+    b_k <- rgamma(1, shape = d, rate = d)
+    inc <- rgamma(n, shape = a1 * (t_obs[2:(n+1)]^a2 - t_obs[1:n]^a2), rate = b_k)
+    data[, k] <- c(0, cumsum(inc))
+  }
+  return(list(data = data, t_obs = t_obs))
+}
+
+# Exemple d'appel pour estimer niveau et puissance
+Nsim <- 500
+B <- 200
+alpha_G <- 0.017
+
+res_H0 <- estimate_power_both(Nsim, scenario_H0, B, alpha_G)
+res_dep <- estimate_power_both(Nsim, scenario_dependent_increments, B, alpha_G)
+res_nh <- estimate_power_both(Nsim, scenario_non_homogeneous, B, alpha_G)
+res_ext_lin <- estimate_power_both(Nsim, function() scenario_extended_gamma(a2 = 1), B, alpha_G)
+res_re_lin <- estimate_power_both(Nsim, function() scenario_random_effect(a2 = 1, d = 1), B, alpha_G)
+
+results <- rbind(res_H0, res_dep, res_nh, res_ext_lin, res_re_lin)
+colnames(results) <- c("Henze", "Villasenor")
+rownames(results) <- c("H0", "Dependent", "NonHomog", "ExtendedGamma(a2=1)", "RandomEffect(a2=1,d=1)")
+print(results)
+```
+
+
+
+
+
+

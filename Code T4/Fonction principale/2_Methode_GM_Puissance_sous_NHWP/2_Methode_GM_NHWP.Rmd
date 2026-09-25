@@ -1,0 +1,836 @@
+---
+title: "Adaptation de la méthode de Grall Maes au processus de wiener  : Puissance des tests avec différents plans d'échantillonnage"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+
+```{r}
+source("pont_brownien_Grall_Maes.R")
+source("estimate_parametres.R")
+source("tests_adequation_loi_normale_new.R")
+source("fonction_principale_wiener.R")
+source("fonction_monte_carlo_wiener_new.R")
+
+```
+
+
+
+### Rappel : processus de Wiener non homogènes
+
+Dans un contexte de dégradation non linéaire, où le taux de détérioration n'est pas constant, Wang et al. [8] ont étudié les erreurs de spécification au sein d'une famille de modèles de dégradation basés sur des processus de Wiener non linéaires. Pour analyser cela, ils ont introduit un modèle général noté $M_0$ :
+
+$$
+M_0 : X(t) = a\Lambda(t;\theta) + \sigma B(\tau(t;\gamma))
+$$
+
+où :
+
+- $\Lambda(t;\theta)$ représente la tendance déterministe avec paramètre de forme $\theta$,
+
+- $B(\tau(t;\gamma))$ modélise l'incertitude temporelle, $\tau(\cdot)$ étant une transformation non linéaire du temps gouvernée par $\gamma$,
+
+- $\sigma$ est le paramètre de diffusion,
+
+- $a \sim \mathcal{N}(\mu_a, \delta_a^2)$ est une variable aléatoire capturant la variabilité produit-à-produit, avec $\mu_a$ la moyenne et $\delta_a^2$ la variance.
+
+Ce modèle général $M_0$ a été comparé à deux cas particuliers :
+
+1. **Modèle $M_1$** : un processus de Wiener avec transformation d'échelle où l'incertitude temporelle est liée à la trajectoire moyenne. On suppose $\tau(t;\gamma) = \Lambda(t;\theta)$, d'où :
+
+$$
+M_1 : X(t) = a_1 \Lambda(t;\theta_1) + \sigma_1 B(\Lambda(t;\theta_1))
+$$
+
+avec $a_1 \sim \mathcal{N}(\mu_a, \delta_a^2)$, $\theta_1$ paramètre de forme, $\sigma_1$ coefficient de diffusion.
+
+2. **Modèle $M_2$** : l'incertitude temporelle suit un mouvement brownien standard, soit $\tau(t;\gamma) = t$, indépendamment de la non-linéarité de la tendance :
+
+$$
+M_2 : X(t) = a_2 \Lambda(t;\theta_2) + \sigma_2 B(t)
+$$
+
+avec $a_2$, $\theta_2$, $\sigma_2$ les paramètres correspondants sous ce modèle simplifié.
+
+
+
+```{r}
+set.seed(46)
+
+# Paramètres
+sigma_true <- 1.5
+
+
+t_obs <- sort(runif(100, 0, 1))
+t_obs <- t_obs[t_obs > 0]   
+
+# Wiener homogène
+a_hom <- 2
+dt_hom <- diff(c(0, t_obs))
+z1 <- rnorm(length(t_obs))
+dx_hom <- a_hom * dt_hom + sigma_true * sqrt(dt_hom) * z1
+x_hom <- c(0, cumsum(dx_hom))
+
+X_hom <- data.frame(
+  t = c(0, t_obs),
+  x = x_hom,
+  modele = "Wiener homogène"
+)
+
+# Wiener non homogène
+a_nhom <- 1
+tau <- t_obs^2
+dtau <- diff(c(0, tau))
+z2 <- rnorm(length(t_obs))
+dx_nhom <- a_nhom * dtau + sigma_true * sqrt(dtau) * z2
+x_nhom <- c(0, cumsum(dx_nhom))
+
+X_nhom <- data.frame(
+  t = c(0, t_obs),
+  x = x_nhom,
+  modele = "Wiener non homogène"
+)
+
+X_all <- rbind(X_hom, X_nhom)
+
+# ---- Graphique ----
+
+ggplot(X_all, aes(x = t, y = x, color = modele)) +
+  geom_point(size = 2) +
+  geom_line(alpha = 0.6) +
+  labs(
+    title = "HWP vs NHWP",
+    x = "Temps t",
+    y = "X(t)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+
+
+
+
+
+
+
+
+# Cas 1 : Inspections irrégulières à fréquence décroissante
+
+```{r}
+library(ggplot2)
+
+# Paramètres
+mu_true <- 2
+sigma_true <- 1.5
+tmax <- 10
+set.seed(73)
+
+# Temps d'observation irréguliers
+t_obs <- sort(c(
+  seq(0, tmax/4, length.out = 8),
+  seq(tmax/4, tmax/2, length.out = 5)[-1],
+  seq(tmax/2, 3*tmax/4, length.out = 3)[-1],
+  seq(3*tmax/4, tmax, length.out = 2)[-1]
+))
+
+stripchart(t_obs,
+          method="stack",
+          pch=19,
+          col="steelblue",
+          main="fréquence décroissante",
+          xlab="Temps",
+          ylab="Observations")
+```
+
+
+
+
+# Niveau et Puissance des tests
+
+## Génération des temps d'observation plus denses au début
+
+```{r}
+set.seed(46)
+
+make_tobs <- function(n_obs, tmax = 100, p = c(4,3,2,1)) {
+  
+  k <- round(n_obs * p / sum(p))
+  k[1] <- k[1] + (n_obs - sum(k))
+  
+  t1 <- seq(0, tmax/4, length.out = k[1])
+  t2 <- seq(tmax/4, tmax/2, length.out = k[2] + 1)[-1]
+  t3 <- seq(tmax/2, 3*tmax/4, length.out = k[3] + 1)[-1]
+  t4 <- seq(3*tmax/4, tmax, length.out = k[4] + 1)[-1]
+  
+  t_obs <- c(t1, t2, t3, t4)
+  t_obs <- unique(round(t_obs, 10))
+  t_obs <- t_obs[t_obs > 0]  
+  
+  return(t_obs)
+}
+
+```
+
+
+## Scénarios 
+
+```{r}
+#  Wiener homogène (H0)
+HWP <- function(t_obs, mu, sigma) {
+  dt <- diff(c(0, t_obs))
+  z <- rnorm(length(t_obs))
+  dx <- mu * dt + sigma * sqrt(dt) * z
+  x <- c(0, cumsum(dx))
+  return(data.frame(t = c(0, t_obs), x = x))
+}
+
+#  Wiener non homogène  (H1)
+NHWP <- function(t_obs, mu, sigma) {
+  tau <- c(0, t_obs)^4
+  dtau <- diff(tau)
+  z <- rnorm(length(t_obs))
+  dx <- mu * dtau + sigma * sqrt(dtau) * z
+  x <- c(0, cumsum(dx))
+  return(data.frame(t = c(0, t_obs), x = x))
+}
+```
+
+
+## Niveau des tests 
+
+```{r}
+set.seed(46)
+n_obs = 50
+t1 <- make_tobs(n_obs, p = c(8,4,2,1))
+stripchart(t1,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+
+
+
+```{r}
+N_sim <- 5000
+n_obs = 50
+t1 <- make_tobs(n_obs, p = c(8,4,2,1))
+
+set.seed(72)
+niveau <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = HWP,
+  t_obs = t1,
+  mu = 2,
+  sigma = 1.5
+)
+niveau
+```
+
+# Puissance des tests
+
+```{r}
+n_obs <- 10
+set.seed(46)
+
+t2 <- make_tobs(n_obs, p = c(8,4,2,1))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t2,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+
+```{r}
+n_obs <- 20
+set.seed(46)
+
+t2 <- make_tobs(n_obs, p = c(8,4,2,1))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t2,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+```{r}
+n_obs <- 50
+set.seed(46)
+
+t2 <- make_tobs(n_obs, p = c(8,4,2,1))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t2,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+```{r}
+n_obs <- 80
+set.seed(46)
+t2 <- make_tobs(n_obs, p = c(8,4,2,1))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t2,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+
+```{r}
+n_obs <- 100
+set.seed(46)
+
+t2 <- make_tobs(n_obs, p = c(8,4,2,1))
+
+N_sim <- 5000
+
+puissance <-suppressWarnings( MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t2,
+  mu = 2,
+  sigma = 1.5
+))
+
+puissance
+```
+
+## Génération des temps d'observation plus denses à la fin 
+
+```{r}
+set.seed(46)
+
+make_tobs <- function(n_obs, tmax = 100, p = c(1,2,3,4)) {
+  
+  k <- round(n_obs * p / sum(p))
+  k[1] <- k[1] + (n_obs - sum(k))
+  
+  t1 <- seq(0, tmax/4, length.out = k[1])
+  t2 <- seq(tmax/4, tmax/2, length.out = k[2] + 1)[-1]
+  t3 <- seq(tmax/2, 3*tmax/4, length.out = k[3] + 1)[-1]
+  t4 <- seq(3*tmax/4, tmax, length.out = k[4] + 1)[-1]
+  
+  t_obs <- c(t1, t2, t3, t4)
+  t_obs <- unique(round(t_obs, 10))
+  t_obs <- t_obs[t_obs > 0]  
+  
+  return(t_obs)
+}
+
+```
+
+```{r}
+set.seed(46)
+n_obs = 15
+t <- c(0,make_tobs(n_obs, p = c(1,2,3,4)))
+stripchart(t,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+# Niveau des tests 
+
+
+```{r}
+set.seed(46)
+N_sim <- 5000
+n_obs = 10
+t4 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+niveau <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = HWP,
+  t_obs = t4,
+  mu = 2,
+  sigma = 1.5
+)
+niveau
+```
+```{r}
+set.seed(46)
+N_sim <- 5000
+n_obs = 50
+t5 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+niveau <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = HWP,
+  t_obs = t5,
+  mu = 2,
+  sigma = 1.5
+)
+niveau
+```
+
+
+
+```{r}
+set.seed(46)
+N_sim <- 5000
+n_obs = 100
+t6 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+niveau <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = HWP,
+  t_obs = t6,
+  mu = 2,
+  sigma = 1.5
+)
+niveau
+```
+
+# Puissance des tests
+
+```{r}
+n_obs <- 10
+set.seed(46)
+
+t1 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t1,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+
+
+```{r}
+n_obs <- 20
+set.seed(46)
+
+t1 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t1,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+
+```{r}
+n_obs <- 50
+set.seed(46)
+
+t1 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t1,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+
+
+```{r}
+n_obs <- 80
+set.seed(46)
+
+t1 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t1,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+
+
+```{r}
+n_obs <- 100
+set.seed(46)
+
+t1 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t1,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+```{r}
+n_obs <- 150
+set.seed(46)
+
+t1 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t1,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+
+
+```{r}
+n_obs <- 200
+set.seed(46)
+
+t1 <- make_tobs(n_obs, p = c(1,2,3,4))
+
+N_sim <- 5000
+
+puissance <- MC_test_wiener_irreg(
+  N = N_sim,
+  scenario = function(t_obs, mu, sigma) NHWP(t_obs, mu, sigma),
+  t_obs = t1,
+  mu = 2,
+  sigma = 1.5
+)
+
+puissance
+```
+# Inspections régulières
+
+```{r}
+tmax <- 100
+n_obs <- 15
+dt = tmax/n_obs
+
+t_obs_reg <- c(0,seq(dt, tmax, by = dt))
+stripchart(t_obs_reg,
+           method = "stack",
+           main = "fréquence régulière",
+           pch = 19,
+           col = "steelblue",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+
+
+```{r}
+# Nouveaux scénarios pour cas régulier
+
+# Wiener homogène (H0) 
+HWP_reg <- function(tmax, n, mu, sigma) {
+  dt <- tmax / n
+  t_obs <- seq(dt, tmax, by = dt)
+  
+  dt_full <- diff(c(0, t_obs))
+  z <- rnorm(length(t_obs))
+  dx <- mu * dt_full + sigma * sqrt(dt_full) * z
+  x <- c(0, cumsum(dx))
+  
+  return(data.frame(t = c(0, t_obs), x = x))
+}
+
+# Wiener non homogène (H1) 
+NHWP_reg <- function(tmax, n, mu, sigma) {
+  dt <- tmax / n
+  t_obs <- seq(dt, tmax, by = dt)
+  
+  tau <- c(0, t_obs)^0.5
+  dtau <- diff(tau)
+  z <- rnorm(length(t_obs))
+  dx <- mu * dtau + sigma * sqrt(dtau) * z
+  x <- c(0, cumsum(dx))
+  
+  return(data.frame(t = c(0, t_obs), x = x))
+}
+```
+
+## Graphique
+```{r}
+library(ggplot2)
+
+set.seed(46)
+tmax <- 100
+n_obs <- 10
+
+# Générer les deux trajectoires
+X_h0 <- HWP_reg(tmax = tmax, n = n_obs, mu = 2, sigma = 1.5)
+X_h1 <- NHWP_reg(tmax = tmax, n = n_obs, mu = 2, sigma = 1.5)
+
+
+X_h0$modele <- "Wiener homogène"
+X_h1$modele <- "Wiener non homogène"
+
+
+X_all <- rbind(X_h0, X_h1)
+
+
+ggplot(X_all, aes(x = t, y = x, color = modele)) +
+  geom_point(size = 2) +
+  geom_line(alpha = 0.7) +
+  labs(
+    title = "Comparaison des processus de Wiener",
+    x = "Temps t",
+    y = "Dégradation X(t)",
+    color = "Modèle"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+
+# Niveau 
+
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 10
+N_sim <- 5000
+
+# Niveau (H0)
+niveau_reg <- MC_test_wiener(
+  N = N_sim,
+  scenario = HWP_reg,
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+)
+niveau_reg
+
+```
+
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 50
+N_sim <- 5000
+
+# Niveau (H0)
+niveau_reg <- MC_test_wiener(
+  N = N_sim,
+  scenario = HWP_reg,
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+)
+niveau_reg
+```
+
+
+
+
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 20
+N_sim <- 5000
+
+
+niveau_reg <- MC_test_wiener(
+  N = N_sim,
+  scenario = function(tmax, n, mu, sigma) {
+    dt <- tmax / n
+    t_obs <- seq(dt, tmax, by = dt)
+    HWP(t_obs, mu, sigma)
+  },
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+)
+
+niveau_reg
+```
+
+
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 50
+N_sim <- 5000
+
+
+niveau_reg <- MC_test_wiener(
+  N = N_sim,
+  scenario = function(tmax, n, mu, sigma) {
+    dt <- tmax / n
+    t_obs <- seq(dt, tmax, by = dt)
+    HWP(t_obs, mu, sigma)
+  },
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+)
+
+niveau_reg
+```
+
+# Puissance
+
+
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 10
+N_sim <- 10000
+
+puissance_reg <- suppressWarnings(MC_test_wiener(
+  N = N_sim,
+  scenario = NHWP_reg,  
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+))
+
+puissance_reg
+```
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 20
+N_sim <- 10000
+
+puissance_reg <- suppressWarnings(MC_test_wiener(
+  N = N_sim,
+  scenario = NHWP_reg,  
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+))
+
+puissance_reg
+```
+
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 50
+N_sim <- 10000
+
+puissance_reg <- suppressWarnings(MC_test_wiener(
+  N = N_sim,
+  scenario = NHWP_reg,  
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+))
+
+puissance_reg
+```
+
+
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 80
+N_sim <- 10000
+
+puissance_reg <- suppressWarnings(MC_test_wiener(
+  N = N_sim,
+  scenario = NHWP_reg,  
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+))
+
+puissance_reg
+```
+
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 100
+N_sim <- 10000
+
+puissance_reg <- suppressWarnings(MC_test_wiener(
+  N = N_sim,
+  scenario = NHWP_reg,  
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+))
+
+puissance_reg
+```
+
+```{r}
+set.seed(46)
+tmax <- 100
+n_obs <- 200
+N_sim <- 10000
+
+puissance_reg <- suppressWarnings(MC_test_wiener(
+  N = N_sim,
+  scenario = NHWP_reg,  
+  tmax = tmax,
+  n = n_obs,
+  mu = 2,
+  sigma = 1.5
+))
+
+puissance_reg
+```
+

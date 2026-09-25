@@ -1,0 +1,245 @@
+---
+title: "Comment simuler une trajectoire à des pas fixes (constant) sachant  les obsevations $(t_i , x_i)$ : Pont gamma"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+
+
+```{r}
+source("simulate_gamma_rwa.R")
+```
+
+# Option A : Simulation séquentielle d’un pont gamma
+
+```{r}
+#
+# t_obs vecteur des temps d'observation 
+# x_obs vecteur des valeurs observées
+# A fonction de forme 
+# a paramètre de forme linéaire 
+# b paramètre d'échelle 
+# rho facteur de raffinement 
+# digits nombre de décimales pour les temps décimaux 
+#
+## Retour
+#   une liste contenant :
+#   t_fine vecteur des temps fins (pas constant)
+#  X_fine vecteur des valeurs simulées sur la grille fine
+#  idx_obs indices des temps observés dans t_fine
+#  grille objet retourné par construire_grille ou construire_grille_dec
+#
+# 
+simulate_pont_gamma <- function(t_obs, x_obs, 
+                                               A = NULL, a = NULL, b = 1, 
+                                               rho = 10, digits = 3) {
+  # Vérifications des entrées
+  if (!is.numeric(t_obs) || length(t_obs) < 2) 
+    stop("t_obs doit être un vecteur numérique d'au moins 2 éléments.")
+  if (any(diff(t_obs) <= 0)) 
+    stop("t_obs doit être strictement croissant.")
+  if (!is.numeric(x_obs) || length(x_obs) != length(t_obs)) 
+    stop("x_obs doit être numérique et de même longueur que t_obs.")
+  if (any(diff(x_obs) <= 0)) 
+    stop("x_obs doit être strictement croissant (processus gamma à accroissements positifs).")
+  if (!is.numeric(rho) || rho <= 0) 
+    stop("rho doit être un nombre positif.")
+  
+  # Définition de la fonction de forme A
+  if (!is.null(A) && is.function(A)) {
+    A_fun <- A
+  } else if (!is.null(a) && is.numeric(a) && length(a) == 1) {
+    A_fun <- function(t) a * t
+  } else {
+    stop("Il faut fournir soit une fonction 'A', soit un scalaire 'a'.")
+  }
+  
+  # Construction de la grille fine 
+  if (all(t_obs == floor(t_obs))) {
+    grille <- construire_grille(t_obs, rho)
+  } else {
+    grille <- construire_grille_dec(t_obs, rho, digits)
+  }
+  
+  t_fine <- grille$t_fine
+  idx_obs <- grille$idx_obs
+  n_fine <- length(t_fine)
+  n_obs <- length(t_obs)
+  
+  # Initialisation du vecteur des valeurs sur la grille fine
+  X_fine <- rep(NA_real_, n_fine)
+  X_fine[idx_obs] <- x_obs
+  
+  # Parcours de chaque intervalle entre observations consécutives
+  for (k in seq_len(n_obs - 1)) {
+    i_deb <- idx_obs[k]
+    i_fin <- idx_obs[k + 1]
+    t_deb <- t_fine[i_deb]
+    t_fin <- t_fine[i_fin]
+    x_deb <- x_obs[k]
+    x_fin <- x_obs[k + 1]
+    
+    current_x <- x_deb
+    for (i in (i_deb + 1):(i_fin - 1)) {
+      t_cur <- t_fine[i]
+      t_prev <- t_fine[i - 1]   
+      
+      alpha <- A_fun(t_cur) - A_fun(t_prev)
+      beta  <- A_fun(t_fin) - A_fun(t_cur)
+      
+
+      if (alpha <= 0) alpha <- 1e-10
+      if (beta  <= 0) beta  <- 1e-10
+      
+      # Tirage Beta
+      r <- rbeta(1, shape1 = alpha, shape2 = beta)
+      
+      current_x <- current_x + (x_fin - current_x) * r
+      X_fine[i] <- current_x
+    }
+  }
+  
+  # Retour des résultats
+  list(t_fine = t_fine, 
+       X_fine = X_fine, 
+       idx_obs = idx_obs,
+       grille = grille)
+}
+```
+
+
+
+```{r}
+library(ggplot2)
+
+set.seed(123)
+t_obs <- c(0, 2, 5, 10)
+a <- 3
+b <- 2
+
+sim_libre <- simuler_gamma(t_obs, a = a, b = b, rho = 10, nsim = 5)
+x_obs <- sim_libre$obs$sim1   
+
+cond <- simulate_pont_gamma(t_obs, x_obs, a = a, b = b, rho = 10)
+
+df_traj <- data.frame(temps = cond$t_fine, X = cond$X_fine)
+df_obs  <- data.frame(temps = t_obs, X = x_obs)
+
+ggplot() +
+  geom_step(data = df_traj, aes(x = temps, y = X, color = "Trajectoire simulée"), size = 1) +
+  geom_point(data = df_obs, aes(x = temps, y = X, color = "Observations"), size = 3) +
+  scale_color_manual(values = c("Trajectoire simulée" = "blue", 
+                                "Observations" = "red")) +
+  labs(title = "Pont gamma", x = "temps", y = "X(t)", color = "") +
+  theme_minimal()
+```
+
+
+# Option B: Simulation d'un pont gamma par la méthode de Dirichlet
+
+
+```{r}
+
+
+simulate_pont_gamma_dirichlet <- function(t_obs, x_obs, A = NULL, a = NULL, 
+                                          rho = 10, digits = 3) {
+
+  #  Vérifications des entrées 
+  
+  if (!is.numeric(t_obs) || length(t_obs) < 2) stop("t_obs doit avoir au moins 2 éléments")
+  if (any(diff(t_obs) <= 0)) stop("t_obs doit être strictement croissant")
+  if (!is.numeric(x_obs) || length(x_obs) != length(t_obs)) stop("x_obs doit correspondre à t_obs")
+  if (any(diff(x_obs) <= 0)) stop("x_obs doit être strictement croissant")
+  if (!is.numeric(rho) || rho <= 0) stop("rho doit être > 0")
+  
+  #  Définition de la fonction de forme A(t) 
+  if (!is.null(A) && is.function(A)) {
+    A_fun <- A
+  } else if (!is.null(a) && length(a) == 1) {
+    A_fun <- function(t) a * t
+  } else stop("Fournir soit A (fonction) soit a (scalaire)")
+  
+  #  Construction de la grille fine 
+  
+  if (all(t_obs == floor(t_obs))) {
+    grille <- construire_grille(t_obs, rho)
+  } else {
+    grille <- construire_grille_dec(t_obs, rho, digits)
+  }
+  t_fine <- grille$t_fine
+  idx_obs <- grille$idx_obs
+  n_fine <- length(t_fine)
+  n_obs  <- length(t_obs)
+  
+  #  Initialisation de la trajectoire 
+  X_fine <- rep(NA_real_, n_fine)
+  X_fine[idx_obs] <- x_obs
+  
+  #  Parcours de chaque intervalle entre observations 
+  for (k in seq_len(n_obs - 1)) {
+    i_deb <- idx_obs[k]
+    i_fin <- idx_obs[k + 1]
+    x_deb <- x_obs[k]
+    x_fin <- x_obs[k + 1]
+    
+  # indices des points intermédiaires dans la grille fine
+    idx_seq <- (i_deb + 1):(i_fin - 1)
+    K <- length(idx_seq) + 1  # nombre de sous-intervalles
+    
+    if (K > 1) {
+      
+  # Calcul des alpha_k pour chaque sous-intervalle 
+      s_all <- c(t_fine[i_deb], t_fine[idx_seq], t_fine[i_fin])
+      alpha <- numeric(K)
+      for (j in 1:K) {
+        alpha[j] <- A_fun(s_all[j + 1]) - A_fun(s_all[j])
+        if (alpha[j] <= 0) alpha[j] <- 1e-10
+      }
+      
+      #  Tirage Dirichlet via Gamma
+      Y <- rgamma(K, shape = alpha, rate = 1)
+      U <- Y / sum(Y)
+      
+      #  Reconstruction de la trajectoire 
+      X_temp <- x_deb + cumsum(U) * (x_fin - x_deb)
+      # On remplit les points intermédiaires (exclut le dernier qui est x_fin)
+      X_fine[idx_seq] <- X_temp[-K]
+    }
+  }
+  
+  return(list(t_fine = t_fine, X_fine = X_fine, idx_obs = idx_obs))
+}
+```
+
+
+```{r}
+# ============================================================================ 
+# Exemple d’utilisation
+# ============================================================================
+
+library(ggplot2)
+
+set.seed(123)
+t_obs <- c(0, 2, 5, 10)
+a <- 3
+b <- 2
+
+# Simulation libre pour générer x_obs
+sim_libre <- simuler_gamma(t_obs, a = a, b = b, rho = 10, nsim = 5)
+x_obs <- sim_libre$obs$sim1  
+
+# Pont gamma par méthode Dirichlet
+cond_dir <- simulate_pont_gamma_dirichlet(t_obs, x_obs, a = a, rho = 10)
+
+# Visualisation
+df_traj <- data.frame(temps = cond_dir$t_fine, X = cond_dir$X_fine)
+df_obs  <- data.frame(temps = t_obs, X = x_obs)
+
+ggplot() +
+  geom_step(data = df_traj, aes(x = temps, y = X), color = "blue", size = 1) +
+  geom_point(data = df_obs, aes(x = temps, y = X), color = "red", size = 3) +
+  labs(title = "Pont gamma (méthode de Dirichlet)", x = "temps", y = "X(t)") +
+  theme_minimal()
+```
+

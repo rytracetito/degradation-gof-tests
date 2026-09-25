@@ -1,0 +1,909 @@
+---
+title: "Panorama des Tests d'adéquation à la loi normale"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Tests basés sur la fonction de répartition empirique (ecdf)
+
+## Test de Kolmogorov-Smirnov 
+
+### *Massey, F. J. (1951). "The Kolmogorov-Smirnov test for goodness of fit". Journal of the American Statistical Association, 46(253), 66-78.*
+
+
+### Description
+Le test de Kolmogorov-Smirnov est un test non paramétrique qui compare la fonction de répartition empirique d'un échantillon avec une fonction de répartition théorique spécifiée.
+
+### Hypothèses
+- **$H_0$** : Les données suivent la loi de distribution spécifiée (loi normale dans notre cas, avec paramètres connus)
+- **$H_1$** : Les données ne suivent pas la loi spécifiée
+
+### Statistique de test
+$$D_n = \sup_{x} |F_n(x) - F(x)|$$
+
+où :\\
+
+- $F_n(x)$ est la fonction de répartition empirique : $F_n(x) = \frac{1}{n}\sum_{i=1}^{n} I_{X_i \leq x}$\\
+- $F(x)$ est la fonction de répartition théorique (loi normale avec paramètres spécifiés) \\
+- $\sup_{x}$ désigne la borne supérieure (maximum) de la distance pour toutes les valeurs de $x$
+
+Une formule équivalente pour le calcul :
+$$D_n = \max\{D^+, D^-\}$$
+
+avec :
+- $$D^+ = \max_{i=1,\ldots,n} \left| \frac{i}{n} - F(x_{(i)}) \right|$$
+- $$D^- = \max_{i=1,\ldots,n} \left| F(x_{(i)}) - \frac{i-1}{n} \right|$$
+
+où $x_{(i)}$ sont les statistiques d'ordre (valeurs ordonnées).
+
+### Propriétés importantes
+
+- La statistique $D_n$ mesure la distance maximale entre les deux fonctions de répartition
+- Plus $D_n$ est grand, plus l'écart à la distribution théorique est important
+- **Limitation majeure** : Ce test n'est valide que si les paramètres de la loi théorique sont **connus à l'avance** (non estimés sur l'échantillon). Si les paramètres sont estimés, il faut utiliser la version de Lilliefors.
+- Test **conservateur** (tendance à ne pas rejeter $H_0$) quand les paramètres sont estimés
+
+### Distribution asymptotique
+
+La fonction de répartition asymptotique est donnée par :
+$$\Pr(\sqrt{n} D_n \leq z) \xrightarrow[n \to \infty]{} L(z) = 1 - 2\sum_{i=1}^{\infty}(-1)^{i-1}e^{-2i^2 z^2}$$
+
+
+### Règle de décision
+- On rejette $H_0$ si $D_n > D_{n,\alpha}$ (valeur critique)
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+### Implémentation R
+
+```{r}
+# Test de Kolmogorov-Smirnov pour la loi normale avec paramètres connus
+# Exemple: tester si les données suivent une N(0,1)
+set.seed(123)
+x <- rnorm(100, mean = 0, sd = 1)  # Données simulées d'une N(0,1)
+ks.test(x, "pnorm", mean = 0, sd = 1)
+
+# Exemple avec des données non normales
+x_unif <- runif(100)
+ks.test(x_unif, "pnorm", mean = 0, sd = 1)
+```
+
+
+## Test de Lilliefors
+
+### *Lilliefors, H. W. (1967). "On the Kolmogorov-Smirnov test for normality with mean and variance unknown". Journal of the American Statistical Association, 62(318), 399-402.*
+### *Dallal, G. E. and Wilkinson, L. (1986). "An analytic approximation to the distribution of Lilliefors's test statistic for normality". The American Statistician, 40, 294-296.*
+
+### Description
+Le test de Lilliefors est une adaptation du test de Kolmogorov-Smirnov pour le cas où les paramètres de la loi normale (moyenne et variance) sont **inconnus et doivent être estimés à partir des données**.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi normale (paramètres inconnus)
+
+- **$H_1$** : Les données ne suivent pas une loi normale
+
+### Problème du test de Kolmogorov-Smirnov classique
+Lorsque les paramètres sont estimés à partir des données, le test de Kolmogorov-Smirnov standard devient trop **conservateur** (tendance à ne pas rejeter $H_0$). Les valeurs critiques standards ne sont plus valides car la distribution de la statistique change. Le test de Lilliefors corrige ce problème en utilisant des tables de valeurs critiques spécifiquement calculées pour ce cas.
+
+### Statistique de test
+La statistique est la même que pour le test de Kolmogorov-Smirnov, mais appliquée aux données **centrées et réduites** :
+
+$$T = \sup_{x} |F^*(x) - S(x)|$$
+
+où :
+
+- $S(x)$ est la fonction de répartition empirique des données
+
+- $F^*(x)$ est la fonction de répartition de la loi normale centrée réduite $N(0,1)$
+
+- Les données sont d'abord transformées en $Z_i = \frac{x_i - \bar{x}}{s}$ avec $\bar{x}$ la moyenne empirique et $s$ l'écart-type empirique
+
+Formulation équivalente pour le calcul :
+$D = \max\{D^+, D^-\}$
+
+avec :
+
+- $D^+ = \max_{i=1,\ldots,n} \left\{ \frac{i}{n} - p_{(i)} \right\}$
+
+- $D^- = \max_{i=1,\ldots,n} \left\{ p_{(i)} - \frac{i-1}{n} \right\}$
+
+où $p_{(i)} = \Phi\left(\frac{x_{(i)} - \bar{x}}{s}\right)$ et $\Phi$ est la fonction de répartition de la loi normale centrée réduite.
+
+### Propriétés importantes
+- Test omnibus basé sur la fonction de répartition empirique (EDF)
+
+- La statistique mesure l'écart maximum entre la distribution observée et la distribution normale
+
+- Les valeurs critiques sont **plus petites** que celles du test de KS classique, rendant le test moins conservateur
+
+- Valable pour $n \leq 1000$ (des tables existent)
+
+- Moins puissant que les tests d'Anderson-Darling ou de Cramér-von Mises pour détecter certains types de déviations
+
+### Distribution asymptotique
+La distribution asymptotique sous $H_0$ est différente de celle du test de Kolmogorov-Smirnov. Des tables de valeurs critiques ont été établies par Lilliefors (1967) par simulations de Monte Carlo.
+
+Pour les grandes valeurs de $n$, la statistique modifiée $Z = D(\sqrt{n} - 0.01 + 0.85/\sqrt{n})$ peut être utilisée.
+
+
+
+### Règle de décision
+- On rejette $H_0$ si $D > D_{n,\alpha}$ (valeur critique)
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+### Calcul de la p-value
+
+La p-value peut être calculée par :
+
+- La formule d'approximation de Dallal-Wilkinson (1986), fiable pour les p-values < 0.1
+
+- Des tables de valeurs critiques
+
+- Des méthodes de Monte Carlo pour plus de précision
+
+### Implémentation R
+```{r}
+#install.packages("nortest")
+#install.packages("DescTools")
+library(nortest)
+lillie.test(x)
+
+# Package 'DescTools'
+library(DescTools)
+LillieTest(x)
+
+# Attention : ne PAS utiliser ks.test avec paramètres estimés
+# ks.test(x, "pnorm", mean(x), sd(x))  # INCORRECT !
+```
+
+## Test de Cramér-von Mises
+
+### *Cramér, H. (1928). "On the composition of elementary errors". Skandinavisk Aktuarietidskrift, 11, 13-74.*
+### *von Mises, R. (1931). Wahrscheinlichkeitsrechnung und ihre Anwendung in der Statistik und theoretischen Physik. Deuticke.*
+
+### Description
+Le test de Cramér-von Mises est un test d'adéquation basé sur la fonction de répartition empirique (EDF). Il mesure la distance quadratique moyenne entre la fonction de répartition empirique et la fonction de répartition théorique de la loi normale.
+
+### Hypothèses
+
+- **$H_0$** : Les données suivent une loi normale (avec paramètres estimés ou spécifiés)
+
+- **$H_1$** : Les données ne suivent pas une loi normale
+
+### Statistique de test
+
+#### Forme générale
+$$W^2 = n \int_{-\infty}^{\infty} (F_n(x) - F(x))^2 dF(x)$$
+
+où :
+
+- $F_n(x)$ est la fonction de répartition empirique
+
+- $F(x)$ est la fonction de répartition théorique (loi normale)
+
+- $dF(x)$ indique que l'intégration est pondérée par la distribution théorique
+
+#### Formule de calcul pour un échantillon
+Pour un échantillon de taille $n$, avec les données ordonnées $x_{(1)} \leq x_{(2)} \leq \ldots \leq x_{(n)}$ :
+
+$$W^2 = \frac{1}{12n} + \sum_{i=1}^{n} \left( \frac{2i-1}{2n} - F(x_{(i)}) \right)^2$$
+
+#### Version avec paramètres estimés (cas de la normalité)
+Lorsque les paramètres sont estimés, on utilise la statistique modifiée :
+
+$$W^2 = \sum_{i=1}^{n} \left( F(x_{(i)}) - \frac{2i-1}{2n} \right)^2 + \frac{1}{12n}$$
+
+où $F(x_{(i)}) = \Phi\left(\frac{x_{(i)} - \bar{x}}{s}\right)$ avec $\bar{x}$ la moyenne empirique et $s$ l'écart-type empirique.
+
+### Propriétés importantes
+
+- Test omnibus de la famille des tests basés sur la fonction de répartition empirique (EDF)
+
+- Contrairement au test de Kolmogorov-Smirnov qui ne considère que l'écart maximum, le test de Cramér-von Mises intègre l'ensemble des écarts
+
+- Pondère **uniformément** tous les écarts sur toute la distribution (pas de pondération particulière pour les queues)
+
+- Plus puissant que le test de Kolmogorov-Smirnov pour détecter certains types de déviations
+- Moins puissant que le test d'Anderson-Darling pour détecter des écarts dans les queues de distribution
+- Invariant par transformation strictement monotone croissante
+
+### Distribution asymptotique
+Sous $H_0$, la statistique $W^2$ converge vers une distribution limite qui est une somme pondérée de variables du $\chi^2$ indépendantes :
+
+$$W^2 \xrightarrow{d} \sum_{j=1}^{\infty} \frac{Z_j^2}{j^2\pi^2}$$
+
+où les $Z_j$ sont des variables aléatoires indépendantes de loi normale centrée réduite.
+
+Pour le cas avec paramètres estimés, la distribution asymptotique est différente et des tables spécifiques ont été établies.
+
+
+
+### Règle de décision
+- On rejette $H_0$ si $W^2 > W^2_{n,\alpha}$ (valeur critique)
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+
+```{r}
+# Charger les packages
+library(nortest)
+library(goftest)
+
+# Génération des données
+set.seed(123)
+x <- rnorm(100)
+
+# Test de Cramér-von Mises (normalité) - package nortest
+nortest::cvm.test(x)
+
+# Test de Cramér-von Mises (goodness-of-fit) - package goftest
+goftest::cvm.test(x, "pnorm", mean = mean(x), sd = sd(x))
+
+```
+
+
+
+## Test d'Anderson-Darling
+
+### *Stephens, M. A. (1974). "EDF statistics for goodness of fit and some comparisons". Journal of the American Statistical Association, 69, 730-737.*
+
+### *Stephens, M. A. (1986). "Tests based on EDF statistics". In D'Agostino, R. B. and Stephens, M. A. (eds.), Goodness-of-Fit Techniques. Marcel Dekker.*
+### *Anderson, T. W. and Darling, D. A. (1952). "Asymptotic theory of certain 'goodness of fit' criteria based on stochastic processes". Annals of Mathematical Statistics, 23, 193-212*
+### Description
+Le test d'Anderson-Darling est un test d'adéquation basé sur la fonction de répartition empirique (EDF). Il mesure la distance quadratique pondérée entre la fonction de répartition empirique et la fonction de répartition théorique de la loi normale, en accordant **plus de poids aux queues de la distribution**.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi normale (avec paramètres estimés ou spécifiés)
+
+- **$H_1$** : Les données ne suivent pas une loi normale
+
+### Statistique de test
+
+#### Forme générale
+$$A^2 = n \int_{-\infty}^{\infty} \frac{(F_n(x) - F(x))^2}{F(x)(1-F(x))} dF(x)$$
+
+où :
+- $F_n(x)$ est la fonction de répartition empirique
+- $F(x)$ est la fonction de répartition théorique (loi normale)
+- Le dénominateur $F(x)(1-F(x))$ pondère l'écart, donnant plus de poids aux queues de la distribution
+
+#### Formule de calcul pour un échantillon
+Pour un échantillon de taille $n$, avec les données ordonnées $x_{(1)} \leq x_{(2)} \leq \ldots \leq x_{(n)}$ :
+
+$$A^2 = -n + \frac{1}{n}\sum_{i=1}^{n} \left[ (2i-1 - 2n)\ln( 1- F(x_{(i)})) + (2i - 1) \ln(F(x_{(i)})) \right)$$
+équivalent à $$A^2 = -n - \frac{1}{n}\sum_{i=1}^{n} (2i-1)[\ln F(x_{(i)}) + \ln(1-F(x_{(n-i+1)}))]$$
+#### Version avec paramètres estimés (cas de la normalité)
+Lorsque les paramètres sont estimés, on utilise la statistique modifiée :
+
+$$A^2 = -n - \sum_{i=1}^{n} \frac{2i-1}{n} \left[ \ln\left(\Phi\left(\frac{x_{(i)} - \bar{x}}{s}\right)\right) + \ln\left(1-\Phi\left(\frac{x_{(n-i+1)} - \bar{x}}{s}\right)\right) \right]$$
+
+où $\bar{x}$ est la moyenne empirique, $s$ l'écart-type empirique et $\Phi$ la fonction de répartition de la loi normale centrée réduite.
+
+### Propriétés importantes
+- Test omnibus de la famille des tests basés sur la fonction de répartition empirique (EDF)
+- **Particulièrement sensible aux écarts dans les queues de distribution**
+- Donne plus de poids aux observations extrêmes que le test de Cramér-von Mises
+- Considéré comme l'un des tests EDF les plus puissants pour détecter des déviations par rapport à la normalité
+- Plus puissant que Kolmogorov-Smirnov et Cramér-von Mises dans la plupart des situations
+- Invariant par transformation strictement monotone croissante
+
+### Distribution asymptotique
+Sous $H_0$, la statistique $A^2$ converge vers une distribution limite qui est une somme pondérée de variables du $\chi^2$ indépendantes :
+
+$$A^2 \xrightarrow{d} \sum_{j=1}^{\infty} \frac{Z_j^2}{j(j+1)}$$
+
+où les $Z_j$ sont des variables aléatoires indépendantes de loi normale centrée réduite
+
+Pour le cas avec paramètres estimés, la distribution asymptotique est différente et des tables spécifiques ont été établies par Stephens (1974).
+
+
+
+
+### Lien avec d'autres tests
+Le test d'Anderson-Darling fait partie de la famille des tests basés sur la fonction de répartition empirique, avec :
+
+- Kolmogorov-Smirnov : $D_n = \sup_x |F_n(x) - F(x)|$
+- Cramér-von Mises : $W^2 = n\int (F_n(x) - F(x))^2 dF(x)$
+- Anderson-Darling : $A^2 = n\int \frac{(F_n(x) - F(x))^2}{F(x)(1-F(x))} dF(x)$
+
+La différence essentielle réside dans la fonction de pondération :
+- Cramér-von Mises : pondération uniforme $w(x) = 1$
+- Anderson-Darling : pondération $w(x) = [F(x)(1-F(x))]^{-1}$ qui tend vers l'infini aux queues
+
+### Implémentation R
+
+```{r}
+# Génération de données
+set.seed(123)
+x <- rnorm(100)
+
+# Test d'Anderson-Darling (normalité) - package nortest
+nortest::ad.test(x)
+
+# Test d'Anderson-Darling (goodness-of-fit) - package goftest
+goftest::ad.test(x, "pnorm", mean = mean(x), sd = sd(x))
+
+```
+
+## Test de Zhang
+
+### *Zhang, J. (2002). "Powerful goodness-of-fit tests based on the likelihood ratio". Journal of the Royal Statistical Society: Series B, 64(2), 281-294.*
+
+### Description
+Le test de Zhang est une famille de tests d'adéquation puissants, basés sur la fonction de répartition empirique (EDF). Développé par Jin Zhang (2002), ce test propose plusieurs versions qui généralisent les tests classiques (Kolmogorov-Smirnov, Cramér-von Mises, Anderson-Darling) en leur apportant une puissance supérieure.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi normale (avec paramètres estimés)
+- **$H_1$** : Les données ne suivent pas une loi normale
+
+### Les trois versions du test de Zhang
+
+Zhang a proposé trois statistiques principales, notées $Z_K$, $Z_C$ et $Z_A$, qui correspondent respectivement à des généralisations des tests de Kolmogorov-Smirnov, Cramér-von Mises et Anderson-Darling.
+
+#### 1. Test $Z_K$ (généralisation de Kolmogorov-Smirnov)
+$$Z_K = \max_{1 \leq i \leq n} \max\left\{ \left|\Phi\left(\frac{x_{(i)} - \bar{x}}{s}\right) - \frac{i-1}{n}\right|, \left|\Phi\left(\frac{x_{(i)} - \bar{x}}{s}\right) - \frac{i}{n}\right| \right\}$$
+
+#### 2. Test $Z_C$ (généralisation de Cramér-von Mises)
+$$Z_C = \sum_{i=1}^{n} \left[ \Phi\left(\frac{x_{(i)} - \bar{x}}{s}\right) - \frac{2i-1}{2n} \right]^2$$
+
+#### 3. Test $Z_A$ (généralisation d'Anderson-Darling)
+$$Z_A = -n - \frac{1}{n}\sum_{i=1}^{n} (2i-1) \left[ \ln\left(\Phi\left(\frac{x_{(i)} - \bar{x}}{s}\right)\right) + \ln\left(1-\Phi\left(\frac{x_{(n-i+1)} - \bar{x}}{s}\right)\right) \right]$$
+
+où :
+
+- $x_{(1)} \leq x_{(2)} \leq \ldots \leq x_{(n)}$ sont les statistiques d'ordre
+
+- $\bar{x}$ est la moyenne empirique
+
+- $s$ est l'écart-type empirique
+
+- $\Phi$ est la fonction de répartition de la loi normale centrée réduite
+
+### Propriétés importantes
+- **Famille complète** : Les trois statistiques $Z_K$, $Z_C$ et $Z_A$ forment une famille cohérente de tests basés sur l'EDF
+- **Puissance élevée** : Les tests de Zhang sont généralement plus puissants que leurs homologues classiques (Kolmogorov-Smirnov, Cramér-von Mises, Anderson-Darling)
+- **Sensibilité** : $Z_A$ (version Anderson-Darling) est particulièrement sensible aux écarts dans les queues de distribution
+- **Invariance** : Les tests sont invariants par transformation affine (changement d'échelle et de localisation)
+
+### Distribution asymptotique
+Sous $H_0$, la distribution asymptotique des statistiques de Zhang est complexe et n'a pas de forme analytique simple. Les valeurs critiques sont obtenues par simulation de Monte Carlo.
+
+### Règle de décision
+- On rejette $H_0$ si la statistique de test est supérieure à la valeur critique tabulée
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+
+## Test de Hegazy-Green
+
+### *Hegazy, Y. A. S. and Green, J. R. (1975). "Some new goodness-of-fit tests using order statistics". Journal of the Royal Statistical Society. Series C (Applied Statistics), Vol. 24, No. 3, pp. 299–308.*
+
+
+### Description
+Le test de Hegazy-Green est un test d'adéquation basé sur les statistiques d'ordre. Développé par Hegazy et Green (1975), il propose plusieurs statistiques pour tester l'ajustement à une loi uniforme ou à une loi normale.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi normale (paramètres inconnus)
+- **$H_1$** : Les données ne suivent pas une loi normale
+
+### Statistiques de test (d'après l'article original)
+
+Pour tester la normalité, Hegazy et Green proposent plusieurs critères. Voici les principaux :
+
+#### 1. Test $T_1$ (écarts absolus)
+$$T_1 = n^{-1} \sum_{i=1}^{n} |y_{(i)} - \eta_i|$$
+
+#### 2. Test $T_2$ (écarts quadratiques)
+$$T_2 = n^{-1} \sum_{i=1}^{n} (y_{(i)} - \eta_i)^2$$
+
+où :
+
+- $y_{(i)} = \frac{x_{(i)} - \bar{x}}{s}$ sont les données ordonnées, centrées et réduites
+
+- $x_{(1)} \leq x_{(2)} \leq \ldots \leq x_{(n)}$ sont les statistiques d'ordre
+
+- $\bar{x}$ est la moyenne empirique : $\bar{x} = \frac{1}{n}\sum_{i=1}^{n} x_i$
+
+- $s$ est l'écart-type empirique : $s^2 = \frac{1}{n-1}\sum_{i=1}^{n}(x_i - \bar{x})^2$
+
+- $\eta_i$ sont les valeurs attendues (expected values) des statistiques d'ordre d'une loi normale centrée réduite (Pearson and Hartley, 1972)
+
+#### 3. Tests avec pondération par la variance
+Hegazy et Green proposent également des versions pondérées utilisant la variance des statistiques d'ordre :
+
+$$T_5 = n^{-1} \sum_{i=1}^{n} \frac{|y_{(i)} - \eta_i|}{a_i}$$
+
+$$T_6 = n^{-1} \sum_{i=1}^{n} \frac{(y_{(i)} - \eta_i)^2}{a_i}$$
+
+où $a_i$ est l'écart-type de la $i$-ème statistique d'ordre (Pearson and Hartley, 1972, Table 10), et $a_i'$ est une approximation calculée par la formule de Mosteller (1946) :
+
+$$a_i' \approx \frac{1}{(n+1)\sqrt{n+2} \, f(\eta_i')}$$
+
+avec $f(x) = \frac{e^{-x^2/2}}{\sqrt{2\pi}}$ et $\eta_i' = \Phi^{-1}\left(\frac{i}{n+1}\right)$.
+
+
+
+### Distribution et valeurs critiques
+La distribution exacte de ces statistiques sous $H_0$ n'a pas de forme analytique simple. Hegazy et Green ont obtenu les valeurs critiques par **simulation de Monte Carlo** avec 10,000 échantillons pour chaque taille (Table 5 de l'article).
+
+**Valeurs critiques pour $T_1$ (seuil $\alpha = 5\%$) :**
+
+| n | Valeur critique |
+|---|-----------------|
+| 5 | 0.4212 |
+| 10 | 0.3377 |
+| 15 | 0.3101 |
+| 20 | 0.2822 |
+| 25 | 0.2683 |
+| 40 | 0.2090 |
+| 80 | 0.1520 |
+
+**Valeurs critiques pour $T_2$ (seuil $\alpha = 5\%$) :**
+
+| n | Valeur critique |
+|---|-----------------|
+| 5 | 0.1974 |
+| 10 | 0.1529 |
+| 15 | 0.1278 |
+| 20 | 0.1039 |
+| 25 | 0.0909 |
+| 40 | 0.0712 |
+| 80 | 0.0476 |
+
+### Approximation des valeurs critiques
+Hegazy et Green ont ajusté des modèles pour exprimer les valeurs critiques en fonction de $n$ (Table 6) :
+
+**Modèle I** (pour $T_2$) :
+$$CV(n|\alpha) = a + \frac{b}{n} + \frac{c}{n^2}$$
+
+Pour $T_2$ à $\alpha = 0.05$ : $a = -0.01261$, $b = -1.9227$, $c = -5.0067$
+
+**Modèle II** (pour $T_1$) :
+$$CV(n|\alpha) = a + b\ln(n) + c\{\ln(n)\}^2$$
+
+Pour $T_1$ à $\alpha = 0.05$ : $a = -0.6027$, $b = -0.1481$, $c = -0.0090$
+
+### Règle de décision
+- On rejette $H_0$ si $T > CV(n|\alpha)$ (valeur critique tabulée ou approximée)
+- Les auteurs recommandent l'utilisation des valeurs critiques obtenues par simulation plutôt que les approximations pour une meilleure précision
+
+### Puissance du test
+D'après l'article (Table 7), les tests $T_1$ et $T_2$ sont parmi les plus puissants :
+
+- Sous l'alternative Laplace : très puissants, surpassant Shapiro-Wilk pour $n=20$
+
+- Sous l'alternative exponentielle : performances comparables
+
+- Sous l'alternative Cauchy : très puissants
+
+- Sous l'alternative uniforme : moins puissants que Shapiro-Wilk et le test d'Anderson-Darling
+
+### Implémentation R
+```{r}
+set.seed(42)
+# Package 'normtest'
+library(normtest)
+x = runif(50)
+# Test de Hegazy-Green (version T1)
+hegazy1.norm.test(x, nrepl = 2000)
+
+
+y = rnorm(100)
+hegazy1.norm.test(y, nrepl = 2000)
+# Paramètres :
+# - x : vecteur de données
+# - nrepl : nombre de réplications pour la simulation Monte Carlo 
+```
+# Tests basés sur la corrélation
+
+
+## Test de Shapiro-Wilk
+
+### *Shapiro, S. S. and Wilk, M. B. (1965). "An analysis of variance test for normality (complete samples)". Biometrika, 52(3/4), 591-611.*
+
+### *Royston, J. P. (1982). "Algorithm AS 181: the W test for normality". Applied Statistics, 31, 176-180.*
+
+### *Leslie, J. R., Stephens, M. A. and Fotopoulos, S. (1986). "Asymptotic distribution of the Shapiro-Wilk W for testing for normality". Annals of Statistics, 14, 1497-1506.* 
+
+
+### Description
+Le test de Shapiro-Wilk est l'un des tests d'adéquation à la loi normale les plus puissants et les plus utilisés. Proposé par Shapiro et Wilk en 1965, il est basé sur le rapport entre deux estimateurs de la variance : une combinaison linéaire des statistiques d'ordre et la variance empirique.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi normale (paramètres inconnus)
+- **$H_1$** : Les données ne suivent pas une loi normale
+
+### Statistique de test
+La statistique $W$ est définie par :
+
+$$W = \frac{(\sum_{i=1}^{n} a_i x_{(i)})^2}{\sum_{i=1}^{n} (x_i - \bar{x})^2}$$
+
+où :
+- $x_{(1)} \leq x_{(2)} \leq \ldots \leq x_{(n)}$ sont les statistiques d'ordre (données ordonnées)
+- $\bar{x} = \frac{1}{n}\sum_{i=1}^{n} x_i$ est la moyenne empirique
+- $a_i$ sont des coefficients (pondérations) calculés à partir des espérances et de la matrice de covariance des statistiques d'ordre d'une loi normale centrée réduite
+
+### Propriétés importantes
+- La statistique $W$ est comprise entre 0 et 1, avec $W=1$ correspondant à un ajustement parfait à la loi normale
+- Le test est invariant par changement d'échelle et de localisation
+- C'est un test **très puissant**, considéré comme supérieur à la plupart des autres tests de normalité
+- La version originale est valable pour les échantillons de taille $3 \leq n \leq 50$
+- Des extensions (Royston, 1982) permettent de traiter des échantillons jusqu'à $n = 2000$
+- Le test est sensible aux ex-aequo (valeurs identiques) dans les données
+
+### Distribution asymptotique
+Sous $H_0$, la distribution de $W$ a été étudiée par Leslie, Stephens et Fotopoulos (1986). Ils ont montré que :
+
+$$n(W - \mathbb{E}[W]) \xrightarrow{d} -\xi$$
+
+où $\xi = \sum_{i=3}^{\infty} (Y_i^2 - 1)/i$ et $\{Y_i, i \geq 3\}$ est une suite de variables aléatoires indépendantes suivant une loi normale centrée réduite.
+
+### Règle de décision
+- On rejette $H_0$ si $W$ est **inférieur** à la valeur critique $W_{n,\alpha}$
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+### Valeurs critiques et approximations
+Les valeurs critiques de $W$ dépendent de la taille de l'échantillon $n$ et du seuil $\alpha$. Pour $3 \leq n \leq 50$, des tables spécifiques sont disponibles. Pour $n > 50$, Royston (1982) propose une transformation permettant d'approcher la distribution de $W$.
+
+### Implémentation R
+
+```{r}
+# Test de Shapiro-Wilk 
+shapiro.test(x)
+
+# Exemple
+set.seed(123)
+x_norm <- rnorm(100)
+shapiro.test(x_norm)
+
+x_unif <- runif(100)
+shapiro.test(x_unif)
+```
+
+
+
+## Test de Filliben
+
+### *Filliben, J. J. (1975). "The Probability Plot Correlation Coefficient Test for Normality". Technometrics, 17(1), 111-117.* 
+
+### *Looney, S. W. and Gulledge, T. R. (1985). "Use of Correlation Coefficient with Normal Probability Plots". The American Statistician, 39, 75-79.*
+
+### Description
+Le test de Filliben, également appelé "Probability Plot Correlation Coefficient Test" (test du coefficient de corrélation du graphique de probabilité), a été développé par James J. Filliben en 1975. Il est basé sur le coefficient de corrélation entre les statistiques d'ordre observées et leurs médianes théoriques (ou quantiles) sous l'hypothèse de normalité [citation:2].
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi normale (paramètres inconnus)
+- **$H_1$** : Les données ne suivent pas une loi normale
+
+### Statistique de test
+Le test de Filliben utilise le coefficient de corrélation de Pearson entre les données ordonnées $x_{(i)}$ et les médianes des statistiques d'ordre $M_i$ d'une loi normale centrée réduite  :
+
+$$r = \frac{\sum_{i=1}^{n} (x_{(i)} - \bar{x})(M_i - \bar{M})}{\sqrt{\sum_{i=1}^{n} (x_{(i)} - \bar{x})^2 \sum_{i=1}^{n} (M_i - \bar{M})^2}}$$
+
+où :
+- $x_{(1)} \leq x_{(2)} \leq \ldots \leq x_{(n)}$ sont les statistiques d'ordre des données observées
+- $\bar{x} = \frac{1}{n}\sum_{i=1}^{n} x_i$ est la moyenne empirique
+- $M_i = \Phi^{-1}(m_i)$ sont les médianes des statistiques d'ordre, avec $\Phi^{-1}$ la fonction quantile de la loi normale centrée réduite
+- $\bar{M} = \frac{1}{n}\sum_{i=1}^{n} M_i$ est la moyenne des médianes théoriques
+- $m_i$ sont les positions de tracé (plotting positions) estimées
+
+
+### Propriétés importantes
+- Le test est conceptuellement simple et repose sur deux outils largement utilisés : le graphique de probabilité (probability plot) et le coefficient de corrélation [citation:1]
+- Il est invariant par changement d'échelle et de localisation
+- La statistique $r$ est comprise entre 0 et 1, avec $r=1$ correspondant à un ajustement parfait
+- Plus $r$ est proche de 1, meilleur est l'ajustement à la loi normale
+- Filliben a montré que son test se compare favorablement à 7 autres tests de normalité en termes de puissance [citation:3]
+- Une étude de Monte Carlo a confirmé que le test de Filliben se compare favorablement au test de Jarque-Bera [citation:4]
+
+### Distribution asymptotique
+La distribution exacte de $r$ sous $H_0$ n'a pas de forme analytique simple. Filliben a déterminé les valeurs critiques par simulation de Monte Carlo pour des échantillons de taille $n = 3(1)50(5)100$ . Des extensions pour des échantillons jusqu'à $n = 10\,000$ ont été proposées ultérieurement [citation:1].
+
+### Règle de décision
+- On rejette $H_0$ si $r$ est **inférieur** à la valeur critique $r_{n,\alpha}$
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+
+
+### Implémentation R
+```{r}
+
+#install.packages("ppcc")
+library(ppcc)
+
+# Test de Filliben avec les positions de tracé originales
+set.seed(123)  # Pour reproductibilité (Monte Carlo)
+x_norm <- rnorm(50)
+ppccTest(x_norm, qfn = "qnorm", ppos = "Filliben", mc = 10000)
+
+ppccTest(x_norm, qfn = "qnorm", ppos = "Blom")
+
+# Comparaison avec d'autres distributions
+x_unif <- runif(50)
+ppccTest(x_unif, qfn = "qnorm", ppos = "Filliben")
+```
+# Tests basés sur les moments
+
+## Test de Jarque-Bera
+
+### *Jarque, C. M. and Bera, A. K. (1980). "Efficient tests for normality, homoscedasticity and serial independence of regression residuals". Economics Letters, 6(3), 255-259.*
+
+### *Jarque, C. M. and Bera, A. K. (1987). "A test for normality of observations and regression residuals". International Statistical Review, 55(2), 163-172.*
+
+### Description
+Le test de Jarque-Bera est un test d'adéquation basé sur les moments de la distribution. Proposé par Jarque et Bera en 1980, il évalue conjointement si le coefficient d'asymétrie (skewness) et le coefficient d'aplatissement (kurtosis) de l'échantillon correspondent à ceux d'une loi normale.
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi normale (asymétrie nulle et aplatissement égal à 3)
+- **$H_1$** : Les données ne suivent pas une loi normale
+
+### Statistique de test
+La statistique $JB$ est définie par :
+
+$$JB = \frac{n}{6} \left( S^2 + \frac{(K-3)^2}{4} \right)$$
+
+où :
+- $n$ est la taille de l'échantillon
+- $S$ est le coefficient d'asymétrie (skewness) de l'échantillon :
+  $$S = \frac{\frac{1}{n}\sum_{i=1}^{n}(x_i - \bar{x})^3}{\left(\frac{1}{n}\sum_{i=1}^{n}(x_i - \bar{x})^2\right)^{3/2}}$$
+- $K$ est le coefficient d'aplatissement (kurtosis) de l'échantillon :
+  $$K = \frac{\frac{1}{n}\sum_{i=1}^{n}(x_i - \bar{x})^4}{\left(\frac{1}{n}\sum_{i=1}^{n}(x_i - \bar{x})^2\right)^2}$$
+
+### Distribution asymptotique
+Sous $H_0$, la statistique $JB$ converge asymptotiquement vers une loi du $\chi^2$ à 2 degrés de liberté :
+
+$$JB \xrightarrow{d} \chi^2_2$$
+
+### Propriétés importantes
+- Test omnibus combinant l'asymétrie et l'aplatissement
+- **Particulièrement adapté pour les grands échantillons** ($n > 2000$)
+- Pour les petits échantillons ($n < 30$), le test peut manquer de puissance
+- La statistique est toujours positive
+- Plus la valeur de $JB$ est grande, plus l'écart à la normalité est important
+- Le test est invariant par changement d'échelle et de localisation
+
+### Règle de décision
+- On rejette $H_0$ si $JB > \chi^2_{2, 1-\alpha}$ (valeur critique de la loi du $\chi^2$ à 2 degrés de liberté)
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+### Implémentation R
+```{r}
+# Package 'tseries'
+library(tseries)
+jarque.bera.test(x)
+
+# Package 'moments'
+library(moments)
+# Calcul manuel
+n <- length(x)
+S <- skewness(x)
+K <- kurtosis(x)
+JB <- n/6 * (S^2 + (K-3)^2/4)
+p_value <- 1 - pchisq(JB, df = 2)
+
+# Package 'normtest'
+library(normtest)
+jb.norm.test(x)
+
+```
+## Test d'aplatissement d'Anscombe-Glynn
+### *D'Agostino, R. B. and Pearson, E. S. (1973). "Tests for departure from normality. Empirical results for the distribution of $b_2$ and $\sqrt{b_1}$". Biometrika, 60, 613-622.*
+
+### *D'Agostino, R. B. (1970). "Transformation to normality of the null distribution of $g_1$". Biometrika, 57(3), 679-681 .*
+
+
+### Description
+Le test d'aplatissement d'Anscombe-Glynn est un test spécifique qui évalue si le coefficient d'aplatissement (kurtosis) d'un échantillon diffère significativement de 3, c'est-à-dire de la valeur attendue sous l'hypothèse de normalité .
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi normale (aplatissement égal à 3, $g_2 = 0$)
+- **$H_1$** : Les données présentent un aplatissement significativement différent de 3 ($g_2 \neq 0$, ou $g_2 > 0$, ou $g_2 < 0$ selon l'alternative choisie)
+
+### Statistique de test
+
+#### 1. Coefficient d'aplatissement empirique
+L'aplatissement (kurtosis) de l'échantillon est défini par  :
+
+$$g_2 = \frac{m_4}{m_2^2} - 3 = \frac{\frac{1}{n}\sum_{i=1}^{n}(x_i - \bar{x})^4}{\left(\frac{1}{n}\sum_{i=1}^{n}(x_i - \bar{x})^2\right)^2} - 3$$
+
+où $\bar{x}$ est la moyenne empirique et $m_j$ sont les moments centrés d'ordre $j$.
+
+#### 2. Transformation d'Anscombe-Glynn
+La distribution de $g_2$ converge lentement vers la normale. Anscombe et Glynn (1983) ont proposé une transformation qui normalise $g_2$  :
+
+Soit $b_2 = g_2 + 3$ (kurtosis non centré). La transformation s'écrit :
+
+$$\beta_2(b_2) = \frac{24n(n-2)(n-3)}{(n+1)^2(n+3)(n+5)}$$
+
+$$A = 6 + \frac{8}{\beta_2(b_2)}\left(\frac{2}{\beta_2(b_2)} + \sqrt{1 + \frac{4}{\beta_2(b_2)}}\right)$$
+
+$$z_2 = \frac{\left(1 - \frac{2}{9A}\right) - \left(\frac{1 - 2/A}{1 + b_2\sqrt{2/(A-4)}}\right)^{1/3}}{\sqrt{2/(9A)}}$$
+
+La statistique transformée $z_2$ suit approximativement une **loi normale centrée réduite** $N(0,1)$ .
+
+### Propriétés importantes
+- Test **spécifique à l'aplatissement**, ne détecte que les déviations liées à la forme des queues de distribution
+- Un indice $g_2$ **positif** (kurtosis > 3, leptokurtique) indique des queues plus lourdes que la normale et un pic plus aigu 
+- Un indice $g_2$ **négatif** (kurtosis < 3, platykurtique) indique des queues plus légères que la normale et un pic plus aplati 
+- La distribution normale a un kurtosis de 3 ($g_2 = 0$), dit mésokurtique 
+- Les distributions avec queues lourdes (comme la distribution de Cauchy) ont un kurtosis élevé
+- Les distributions uniformes ont un kurtosis inférieur à 3 (platykurtique)
+
+### Distribution asymptotique
+Sous $H_0$, la statistique transformée $z_2$ suit approximativement une **loi normale centrée réduite** $N(0,1)$ . Cette approximation est valable pour $n \geq 20$.
+
+### Règle de décision
+- **Test bilatéral** ($H_1$ : $g_2 \neq 0$) : on rejette $H_0$ si $|z_2| > z_{1-\alpha/2}$, où $z_{1-\alpha/2}$ est le quantile de la loi normale
+- **Test unilatéral à gauche** ($H_1$ : $g_2 < 0$) : on rejette $H_0$ si $z_2 < z_{\alpha}$
+- **Test unilatéral à droite** ($H_1$ : $g_2 > 0$) : on rejette $H_0$ si $z_2 > z_{1-\alpha}$
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+
+
+# Test basés sur les statistiques d'ordre
+
+## Test de David-Hartley-Pearson
+
+### *D'Agostino, R. B. (1970). "Transformation to normality of the null distribution of $g_1$". Biometrika, 57(3), 679-681 .*
+
+### *D'Agostino, R. B. and Pearson, E. S. (1973). "Tests for departure from normality. Empirical results for the distributions of $b_2$ and $\sqrt{b_1}$". Biometrika, 60, 613-622 *
+
+### Description
+Le test de David-Hartley-Pearson, développé par Herbert A. David, H. O. Hartley et Egon Sharpe Pearson en 1954, est un test statistique utilisé pour l'identification des valeurs aberrantes (outliers) dans un échantillon issu d'une population normale.
+
+Il permet de tester simultanément si la valeur minimale et la valeur maximale d'un échantillon sont des outliers par rapport à l'hypothèse de normalité de la population sous-jacente.
+
+### Hypothèses
+- **$H_0$** : Les données proviennent d'une population normale et les valeurs extrêmes (min et max) ne sont pas des outliers
+- **$H_1$** : Au moins l'une des valeurs extrêmes (min ou max) est un outlier
+
+Deux hypothèses nulles spécifiques peuvent être formulées  :
+- $H_0(1)$ : La plus petite observation $x_{(1)}$ n'est pas une valeur aberrante
+- $H_0(n)$ : La plus grande observation $x_{(n)}$ n'est pas une valeur aberrante
+
+### Statistique de test
+La statistique de test est le rapport de l'étendue (range) à l'écart-type de l'échantillon  :
+
+$$T = \frac{R}{s} = \frac{x_{(n)} - x_{(1)}}{\sqrt{\frac{\sum_{i=1}^{n}(x_i - \bar{x})^2}{n-1}}}$$
+
+où :
+- $x_{(1)}$ est la plus petite observation (minimum)
+- $x_{(n)}$ est la plus grande observation (maximum)
+- $R = x_{(n)} - x_{(1)}$ est l'étendue de l'échantillon
+- $s$ est l'écart-type empirique (avec dénominateur $n-1$)
+- $\bar{x}$ est la moyenne empirique
+
+### Propriétés importantes
+- Le test suppose que les données proviennent d'une **distribution approximativement normale** 
+- Il s'agit d'un test **paramétrique** spécifiquement conçu pour détecter les valeurs aberrantes 
+- La statistique mesure la dispersion relative de l'échantillon en comparant l'étendue à l'écart-type
+- Une valeur élevée de $T$ indique une dispersion trop grande pour être attribuable au hasard sous l'hypothèse de normalité, suggérant la présence d'outliers
+- Si les valeurs minimale et maximale sont à égale distance de la moyenne, elles sont toutes deux considérées comme outliers 
+
+### Distribution asymptotique
+La distribution exacte de la statistique $T$ sous $H_0$ a été tabulée par David, Hartley et Pearson (1954) pour différentes tailles d'échantillon et niveaux de signification.
+
+Pour $n > 50$, la formule approximative suivante peut être utilisée :
+
+$$cv = \frac{2(n-1)t_{(1-\alpha)/(n(n-1)), n-2}}{\sqrt{2(n-2) + t_{(1-\alpha)/(n(n-1)), n-2}^2}}$$
+
+où $t$ désigne la fonction quantile de la distribution de Student.
+
+### Valeurs critiques
+Voici un extrait des valeurs critiques $Q_{n;1-\alpha}$ pour différents seuils de signification [citation:1] :
+
+| $n$ | $Q_{n;0.90}$ | $Q_{n;0.95}$ | $Q_{n;0.99}$ | $n$ | $Q_{n;0.90}$ | $Q_{n;0.95}$ | $Q_{n;0.99}$ |
+|-----|---------------|---------------|---------------|-----|---------------|---------------|---------------|
+| 3 | 1.997 | 1.999 | 2.000 | 17 | 4.15 | 4.31 | 4.59 |
+| 5 | 2.712 | 2.753 | 2.803 | 20 | 4.32 | 4.49 | 4.79 |
+| 10 | 3.57 | 3.69 | 3.88 | 30 | 4.70 | 4.89 | 5.25 |
+| 15 | 4.02 | 4.17 | 4.43 | 50 | 5.15 | 5.35 | 5.77 |
+
+### Règle de décision
+- On rejette $H_0$ si $T > Q_{n;1-\alpha}$, où $Q_{n;1-\alpha}$ est la valeur critique pour un échantillon de taille $n$ au seuil $\alpha$
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+#  Test basés sur le rapport de vraisemblance
+
+## Test du $\chi^2$ de Pearson
+
+### *Pearson, K. (1900). "On the criterion that a given system of deviations from the probable in the case of a correlated system of variables is such that it can be reasonably supposed to have arisen from random sampling". Philosophical Magazine Series 5, 50(302), 157-175.*
+
+### *Cochran, W. G. (1952). "The $\chi^2$ test of goodness of fit". The Annals of Mathematical Statistics, 23(3), 315-345.*
+
+
+### Description
+Le test du $\chi^2$ (khi-deux) de Pearson, développé par Karl Pearson en 1900, est l'un des plus anciens tests d'adéquation. Il compare les effectifs observés dans différentes classes aux effectifs attendus sous une loi théorique .
+
+### Hypothèses
+- **$H_0$** : Les données suivent une loi normale (ou toute autre distribution spécifiée)
+- **$H_1$** : Les données ne suivent pas la loi spécifiée
+
+### Statistique de test
+La statistique du $\chi^2$ est définie par  :
+
+$$\chi^2 = \sum_{i=1}^{k} \frac{(O_i - E_i)^2}{E_i}$$
+
+où :
+- $k$ est le nombre de classes (intervalles) dans lesquelles les données sont regroupées
+- $O_i$ est l'effectif observé dans la classe $i$
+- $E_i$ est l'effectif attendu sous $H_0$ dans la classe $i$, calculé par $E_i = n \cdot p_i$, avec $p_i$ la probabilité théorique pour la classe $i$
+
+### Construction des classes
+Pour appliquer le test à une loi normale, on procède généralement ainsi  :
+
+1. **Division en classes** : On partitionne l'ensemble des valeurs possibles en $k$ intervalles
+   $$]-\infty, a_1],\; ]a_1, a_2],\; \ldots,\; ]a_{k-1}, +\infty[$$
+
+2. **Calcul des probabilités théoriques** sous $H_0$ :
+   $$p_1 = F(a_1),\quad p_i = F(a_i) - F(a_{i-1}),\quad p_k = 1 - F(a_{k-1})$$
+
+   où $F$ est la fonction de répartition de la loi normale $\mathcal{N}(\mu,\sigma^2)$, avec $\mu$ et $\sigma$ estimés par $\bar{x}$ et $s$.
+
+3. **Calcul des effectifs attendus** : $E_i = n \cdot p_i$
+
+4. **Calcul des effectifs observés** : $O_i = \text{nombre d'observations dans la classe } i$
+
+
+
+### Distribution asymptotique
+Sous $H_0$, la statistique $\chi^2$ suit asymptotiquement une loi du $\chi^2$ avec :
+
+$$\text{ddl} = k - 1 - p$$
+
+où $p$ est le nombre de paramètres estimés à partir des données  :
+- Pour une loi complètement spécifiée (paramètres connus) : $p = 0$, ddl $= k-1$
+- Pour une loi normale avec paramètres estimés (moyenne et variance) : $p = 2$, ddl $= k-3$
+
+### Règle de décision
+- On rejette $H_0$ si $\chi^2 > \chi^2_{k-1-p,\; 1-\alpha}$ (valeur critique de la loi du $\chi^2$)
+- Ou de manière équivalente, on rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+
+
+## Test de randomisation de Kempthorne
+
+### *Kempthorne, O. (1952). The Design and Analysis of Experiments. Wiley.*
+
+### *Kempthorne, O. and Folks, L. (1971). Probability, Statistics, and Data Analysis. Iowa State University Press.*
+
+### Description
+Le test de randomisation de Kempthorne, basé sur les travaux d'Oscar Kempthorne, est une méthode d'inférence statistique non paramétrique qui utilise la distribution de randomisation plutôt que des hypothèses distributionnelles (comme la normalité). Ce test est particulièrement utilisé dans le contexte des plans d'expérience pour évaluer l'effet d'un traitement .
+
+### Hypothèses
+- **$H_0$** : Le traitement n'a aucun effet sur la réponse mesurée (les observations sont échangeables entre les groupes)
+- **$H_1$** : Le traitement a un effet sur la réponse mesurée
+
+### Principe du test
+Le test repose sur l'idée que si le traitement n'a pas d'effet, alors l'affectation des traitements aux unités expérimentales est arbitraire . Sous $H_0$, toutes les affectations possibles sont équiprobables.
+
+### Statistique de test
+La statistique de test peut être n'importe quelle mesure de différence entre les groupes, par exemple :
+
+**Différence des moyennes :**
+$$D_{\text{obs}} = \bar{x}_A - \bar{x}_B$$
+
+**Statistique de Student :**
+$$t_{\text{obs}} = \frac{\bar{x}_A - \bar{x}_B}{s \sqrt{\frac{1}{n_A} + \frac{1}{n_B}}}$$
+
+**Différence des médianes :**
+$$M_{\text{obs}} = \text{médiane}(x_A) - \text{médiane}(x_B)$$
+
+### Procédure du test
+1. **Calcul de la statistique observée** $T_{\text{obs}}$ sur les données réelles
+2. **Génération des permutations** : Sous $H_0$, on réaffecte aléatoirement les étiquettes des groupes un grand nombre de fois $B$ (idéalement toutes les permutations possibles si $n$ est petit)
+3. **Calcul des statistiques permutées** : Pour chaque permutation $b = 1,\ldots,B$, on calcule $T^{(b)}$
+4. **Calcul de la p-value** :
+   $$p\text{-value} = \frac{1 + \sum_{b=1}^{B} \mathbb{I}(|T^{(b)}| \geq |T_{\text{obs}}|)}{B + 1}$$
+
+### Propriétés importantes
+- Test **non paramétrique** : ne nécessite aucune hypothèse de distribution (normalité, etc.)
+- Test **exact** pour les petits échantillons si on considère toutes les permutations possibles
+- **Robuste** aux valeurs aberrantes et aux distributions non normales
+- Le nombre total de permutations est $\binom{n_A + n_B}{n_A}$, qui devient rapidement très grand
+- Pour les grands échantillons, on utilise un échantillon aléatoire de permutations (généralement $B = 10\,000$)
+
+### Distribution asymptotique
+Pour un grand nombre de permutations, la distribution de la statistique de test sous $H_0$ tend vers la distribution de randomisation théorique. Cette distribution peut être approchée par une loi normale lorsque $n$ est grand, mais le test conserve sa validité sans cette approximation .
+
+### Règle de décision
+- On rejette $H_0$ si la p-value est inférieure au seuil $\alpha$
+- Pour un test bilatéral, on considère les valeurs absolues de la statistique
+

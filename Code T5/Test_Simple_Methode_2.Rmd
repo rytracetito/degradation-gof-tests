@@ -1,0 +1,207 @@
+---
+title: 'Test simple : Méthode 2'
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+
+```{r}
+test_wiener_decorr <- function(data,
+                               test_normalite = "shapiro",
+                               alpha = 0.05) {
+  # Vérification des données
+  if (!all(c("t", "x") %in% names(data))) {
+    stop("data doit contenir les colonnes 't' et 'x'")
+  }
+  t <- data$t
+  x <- data$x
+  if (length(t) != length(x)) stop("t et x doivent avoir la même longueur")
+  if (any(diff(t) <= 0)) stop("Les temps doivent être strictement croissants")
+  
+  n <- length(t) - 1
+  if (n < 2) stop("Il faut au moins 3 observations (n >= 2)")
+  
+  dt <- diff(t)
+  dx <- diff(x)
+  
+  # Calcul des D_i (avec Y0 = 0)
+  Y <- dx / dt
+  Y0 <- 0
+  D <- Y - c(Y0, Y[1:(n-1)])
+  
+  # Construction de la matrice M
+  M <- matrix(0, n, n)
+  M[1,1] <- 1 / dt[1]
+  if (n > 1) M[1,2] <- -1 / dt[1]
+  if (n > 2) {
+    for (i in 2:(n-1)) {
+      M[i, i-1] <- -1 / dt[i-1]
+      M[i, i]   <- 1/dt[i-1] + 1/dt[i]
+      M[i, i+1] <- -1 / dt[i]
+    }
+  }
+  if (n > 1) {
+    M[n, n-1] <- -1 / dt[n-1]
+    M[n, n]   <- 1/dt[n-1] + 1/dt[n]
+  }
+  
+  # M^{-1/2} via expm
+  if (!requireNamespace("expm", quietly = TRUE)) {
+    install.packages("expm")
+  }
+  library(expm, quietly = TRUE)
+  M_inv_sqrt <- sqrtm(solve(M))
+  
+  # Décorrélation : Z = M^{-1/2} D
+  Z <- as.vector(M_inv_sqrt %*% D)
+  
+  # Test de normalité sur Z (noms des tests en minuscules)
+  test_norm_lower <- tolower(test_normalite)
+  p_norm <- switch(test_norm_lower,
+    shapiro = shapiro.test(Z)$p.value,
+    anderson = nortest::ad.test(Z)$p.value,
+    cvm = nortest::cvm.test(Z)$p.value,
+    lilliefors = nortest::lillie.test(Z)$p.value,
+    jarque = tseries::jarque.bera.test(Z)$p.value,
+    agostino = fBasics::dagoTest(Z)@test$p.value[3],
+    stop("Test inconnu. Choix: shapiro, anderson, cvm, lilliefors, jarque, agostino")
+  )
+  
+  alpha_N <- alpha / 2
+  if (p_norm < alpha_N) {
+    return(list(
+      rejet_H0 = TRUE,
+      test = "N",
+      p_value_norm = p_norm,
+      p_value_mu = NA
+    ))
+  }
+  
+  # Test de Student sur la moyenne de Z
+  p_mu <- t.test(Z, mu = 0)$p.value
+  alpha_M <- alpha / 2
+  rejet_M <- p_mu < alpha_M
+  
+  return(list(
+    rejet_H0 = rejet_M,
+    test = ifelse(rejet_M, "M", "Aucun"),
+    p_value_norm = p_norm,
+    p_value_mu = p_mu
+  ))
+}
+```
+
+
+```{r}
+# ------------------------------
+# Exemple d'application
+# ------------------------------
+# Données d'exemple 
+data_ex <- data.frame(t = c(0, 0.5, 1.2, 2.0, 3.1, 4.5),
+                      x = c(0, 0.3, 0.8, 1.1, 1.7, 9.0))
+
+# Appel de la fonction 
+res <- test_wiener_decorr(data_ex, test_normalite = "Shapiro", alpha = 0.05)
+
+res
+```
+```{r}
+sim_hwp <- function(t_obs, mu, sigma) {
+  dt <- diff(t_obs)
+  dx <- mu * dt + sigma * sqrt(dt) * rnorm(length(dt))
+  x <- c(0, cumsum(dx))
+  return(data.frame(t = t_obs, x = x))
+}
+
+sim_nhwp <- function(t_obs, sigma_true, mu = 1) {
+  dt <- diff(t_obs)
+  dX <- mu * diff(t_obs^2) + sigma_true * sqrt(dt) * rnorm(length(dt))
+  x <- c(0, cumsum(dX))
+  return(data.frame(t = t_obs, x = x))
+}
+```
+
+
+```{r}
+MC_wiener <- function(N = N, scenario, t_obs, 
+                      mu = NULL, sigma = NULL, sigma_true = NULL, 
+                      alpha = 0.05) {
+  tests <- c("shapiro", "jarque", "lilliefors", "anderson", "cvm", "agostino")
+  
+  une_iter <- function() {
+    if (!is.null(mu) && !is.null(sigma)) {
+      X <- scenario(t_obs = t_obs, mu = mu, sigma = sigma)
+    } else if (!is.null(sigma_true)) {
+      X <- scenario(t_obs = t_obs, sigma_true = sigma_true)
+    } else {
+      stop("Spécifiez soit (mu, sigma), soit sigma_true.")
+    }
+    X <- as.data.frame(X)
+    names(X) <- c("t", "x")
+    
+    res <- vapply(tests, function(test_norm) {
+      as.integer(test_wiener_decorr(data = X, test_normalite = test_norm, alpha = alpha)$rejet_H0)
+    }, integer(1))
+    return(res)
+  }
+  
+  res_mat <- replicate(N, une_iter())
+  taux_rejet <- rowMeans(res_mat)
+  names(taux_rejet) <- c("Shapiro", "JarqueBera", "Lilliefors", "Anderson", "Cramer", "Agostino")
+  return(taux_rejet)
+}
+
+```
+
+# Inspections régulières
+
+```{r}
+N = 1000
+ 
+```
+
+# Niveau
+
+```{r}
+n = 100
+t_obs_reg <- seq(0, 1, length.out = n+1)
+set.seed(46)
+niveau <- MC_wiener(N = N, scenario = sim_hwp, t_obs = t_obs_reg,
+                    mu = 0, sigma = 1, alpha = alpha)
+cat("Niveau (taux de rejet sous H0) :\n")
+print(niveau)
+```
+
+# Puissance
+
+```{r}
+set.seed(46)
+puissance <- MC_wiener(N = Nsim, scenario = sim_nhwp, t_obs = t_obs_reg, sigma_true = 1, alpha = alpha)
+print(puissance)
+```
+# Inspections irrégulières
+
+```{r}
+set.seed(456)
+t_obs_irreg <- sort(c(0, runif(49, 0, 1), 1))   
+
+# Niveau 
+set.seed(123)
+niveau_irreg <- MC_wiener(N = 1000, scenario = sim_hwp, t_obs = t_obs_irreg,
+                          mu = 0, sigma = 1, alpha = 0.05)
+niveau_irreg
+```
+
+# Puissance
+
+```{r}
+
+set.seed(123)
+puissance_irreg <- MC_wiener(N = 1000, scenario = sim_nhwp, t_obs = t_obs_irreg,
+                             sigma_true = 1, alpha = 0.05)
+
+puissance_irreg
+
+```
+

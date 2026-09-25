@@ -1,0 +1,400 @@
+---
+title: 'Procédure de test pour un processus de Wiener homogène : Test  de Olivier Gaudoin'
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+
+```{r}
+test_wiener_homogene <- function(data,
+                                 test_normalite = "shapiro",
+                                 alpha = 0.05) {
+
+  if (!all(c("t", "x") %in% names(data))) {
+    stop("data doit contenir les colonnes 't' et 'x'")
+  }
+
+  t <- data$t
+  x <- data$x
+
+  if (length(t) != length(x)) {
+    stop("t et x doivent avoir la même longueur")
+  }
+
+  if (any(diff(t) <= 0)) {
+    stop("Les temps doivent être strictement croissants")
+  }
+
+  n <- length(t) - 1
+  dt <- diff(t)
+  dx <- diff(x)
+
+  K <- floor(n / 2)
+  if (K < 2) {
+    stop("Il faut au moins 4 observations (K >= 2)")
+  }
+
+  Vk <- numeric(K)
+  for (k in seq_len(K)) {
+    i1 <- 2 * k - 1
+    i2 <- 2 * k
+    Vk[k] <- (dx[i2] / dt[i2] - dx[i1] / dt[i1]) /
+              sqrt(1 / dt[i2] + 1 / dt[i1])
+  }
+
+  # Test de normalité
+  p_norm <- switch(test_normalite,
+    shapiro = shapiro.test(Vk)$p.value,
+    anderson = {
+      if (!requireNamespace("nortest", quietly = TRUE))
+        stop("Le package 'nortest' est requis.")
+      nortest::ad.test(Vk)$p.value
+    },
+    cvm = {
+      if (!requireNamespace("nortest", quietly = TRUE))
+        stop("Le package 'nortest' est requis.")
+      nortest::cvm.test(Vk)$p.value
+    },
+    lilliefors = {
+      if (!requireNamespace("nortest", quietly = TRUE))
+        stop("Le package 'nortest' est requis.")
+      nortest::lillie.test(Vk)$p.value
+    },
+    jarque = {
+      if (!requireNamespace("tseries", quietly = TRUE))
+        stop("Le package 'tseries' est requis.")
+      tseries::jarque.bera.test(Vk)$p.value
+    },
+    agostino = {
+      if (!requireNamespace("fBasics", quietly = TRUE))
+        stop("Le package 'fBasics' est requis.")
+      # dagotest retourne trois p-values : on prend l'omnibus (3ème)
+      fBasics::dagoTest(Vk)@test$p.value[3]
+    },
+    stop("test_normalite doit être 'shapiro', 'anderson', 'cvm', 'lilliefors', 'jarque' ou 'agostino'")
+  )
+
+  alpha_N <- alpha / 2
+  if (p_norm < alpha_N) {
+    return(list(
+      rejet_H0 = TRUE,
+      test = "N",
+      p_value_norm = p_norm,
+      p_value_mu = NA
+    ))
+  }
+
+  # Test de moyenne nulle
+  p_mu <- t.test(Vk, mu = 0)$p.value
+  alpha_M <- alpha / 2
+  rejet_M <- p_mu < alpha_M
+
+  return(list(
+    rejet_H0 = rejet_M,
+    test = ifelse(rejet_M, "M", "Aucun"),
+    p_value_norm = p_norm,
+    p_value_mu = p_mu
+  ))
+}
+```
+
+# Application 
+
+```{r}
+# Application 
+
+set.seed(47)
+
+n <- 50
+T_max <- 50
+t_obs <- sort(runif(n, 0, T_max))
+t <- c(0, t_obs)
+mu <- 3
+sigma <- 0.5
+
+
+# HWP
+z <- rnorm(n)
+dt <- diff(t)                          
+dX <- mu * dt + sigma * sqrt(dt) * z  
+X <- c(0, cumsum(dX))                  
+
+X_hom <- data.frame(t = t, x = X)
+head(X_hom)
+
+
+# NHWP
+
+dX <- mu * diff(t^2) + sigma * sqrt(dt) * z
+
+X <- c(0, cumsum(dX))
+
+X_nhom <- data.frame(t = t, x = X)
+head(X_nhom)
+```
+
+```{r}
+# Wiener homogène
+res_hom <- test_wiener_homogene(
+  X_hom,
+  test_normalite = "shapiro",
+  alpha = 0.05
+)
+
+res_hom
+```
+
+```{r}
+
+set.seed(123)
+
+n <- 100
+T_max <- 100
+
+t_gamma <- sort(runif(n, 0, T_max))
+
+dt_gamma <- diff(c(0, t_gamma))
+
+shape <- 0.5
+rate <- 0.5
+
+dx_gamma <- rgamma(
+  n,
+  shape = shape * dt_gamma,
+  rate = rate
+)
+
+x_gamma <- c(0, cumsum(dx_gamma))
+
+data_gamma <- data.frame(
+  t = c(0, t_gamma),
+  x = x_gamma
+)
+
+r5 <- test_wiener_homogene(
+  data = data_gamma,
+  test_normalite = "shapiro",
+  alpha = 0.05
+)
+
+print(r5)
+```
+
+
+```{r}
+# Non homogène
+res_nhom <- test_wiener_homogene(
+  X_nhom,
+  test_normalite = "shapiro",
+  alpha = 0.05
+)
+
+res_nhom
+```
+```{r}
+library(ggplot2)
+library(patchwork)
+
+set.seed(47)
+
+# Paramètres communs
+T <- 50
+delta <- 0.1
+t_grid <- seq(0, T, by = delta)
+n <- length(t_grid) - 1
+dt <- diff(t_grid)
+mu <- 0.05
+sigma <- 1
+z <- rnorm(n)
+
+# Wiener homogène
+
+dX_hom <- 1 * dt + sigma * sqrt(dt) * z
+X_hom <- c(0, cumsum(dX_hom))
+
+
+tobs_hom <- c(0, T * rbeta(20, shape1 = 5, shape2 = 2), T - 1)
+tobs_hom <- sort(tobs_hom)
+X_obs_hom <- approx(t_grid, X_hom, xout = tobs_hom, rule = 2)$y
+
+df_traj_hom <- data.frame(t = t_grid, X = X_hom)
+df_obs_hom <- data.frame(t = tobs_hom, X = X_obs_hom)
+
+p1 <- ggplot() +
+  geom_line(data = df_traj_hom, aes(x = t, y = X), color = "red", linewidth = 0.8) +
+  geom_point(data = df_obs_hom, aes(x = t, y = X), color = "blue", size = 2) +
+  labs(x = "Temps", y = "X(t)", title = "HWP") +
+  theme_minimal()
+
+
+dX_nhom <- mu * diff(t_grid^2) + 7 * sqrt(dt) * z
+X_nhom <- c(0, cumsum(dX_nhom))
+
+
+
+tobs_nhom <- c(0, T * runif(20, 0, 1), T - 1)
+tobs_nhom <- sort(tobs_nhom)
+X_obs_nhom <- approx(t_grid, X_nhom, xout = tobs_nhom, rule = 2)$y
+
+df_traj_nhom <- data.frame(t = t_grid, X = X_nhom)
+df_obs_nhom <- data.frame(t = tobs_nhom, X = X_obs_nhom)
+
+p2 <- ggplot() +
+  geom_line(data = df_traj_nhom, aes(x = t, y = X), color = "red", linewidth = 0.8) +
+  geom_point(data = df_obs_nhom, aes(x = t, y = X), color = "blue", size = 2) +
+  labs(x = "Temps", y = "X(t)", title = "NHWP") +
+  theme_minimal()
+
+
+p1 + p2
+```
+
+# Niveau et puissance des tets 
+
+```{r}
+# HWP
+sim_hwp <- function(t_obs, mu, sigma) {
+  dt <- diff(t_obs)
+  dx <- mu * dt + sigma * sqrt(dt) * rnorm(length(dt))
+  x <- c(0, cumsum(dx))
+  return(cbind(t = t_obs, x = x))
+}
+
+# NHWP
+sim_nhwp <- function(t_obs, sigma_true) {
+  mu <- 1
+  dt <- diff(t_obs)
+
+  dX <- mu * diff(t_obs^2) +
+        sigma_true * sqrt(dt) * rnorm(length(dt))
+
+  x <- c(0, cumsum(dX))
+
+  return(cbind(t = t_obs, x = x))
+}
+```
+
+```{r}
+MC_wiener <- function(
+    N = 1000,
+    scenario,
+    t_obs,
+    mu = NULL,
+    sigma = NULL,
+    sigma_true = NULL,
+    alpha = 0.05
+){
+
+  tests <- c(
+    "shapiro",
+    "jarque",
+    "lilliefors",
+    "anderson",
+    "cvm",
+    "agostino"
+  )
+
+  une_iter <- function(i){
+
+    # Génération de la trajectoire
+    if (!is.null(mu) && !is.null(sigma)) {
+
+      X <- scenario(
+        t_obs = t_obs,
+        mu = mu,
+        sigma = sigma
+      )
+
+    } else if (!is.null(sigma_true)) {
+
+      X <- scenario(
+        t_obs = t_obs,
+        sigma_true = sigma_true
+      )
+
+    } else {
+
+      stop(
+        "Spécifiez soit (mu, sigma), soit sigma_true."
+      )
+    }
+
+    X <- as.data.frame(X)
+    names(X) <- c("t", "x")
+
+    # Application des différents tests
+    res <- vapply(
+      tests,
+      function(test_norm){
+
+        as.integer(
+          test_wiener_homogene(
+            data = X,
+            test_normalite = test_norm,
+            alpha = alpha
+          )$rejet_H0
+        )
+
+      },
+      integer(1)
+    )
+
+    return(res)
+  }
+
+  res_mat <- replicate(
+    N,
+    une_iter(1)
+  )
+
+  taux_rejet <- rowMeans(res_mat)
+
+  names(taux_rejet) <- c(
+    "Shapiro",
+    "JarqueBera",
+    "Lilliefors",
+    "Anderson",
+    "CramerVonMises",
+    "DAgostino"
+  )
+
+  return(taux_rejet)
+}
+```
+
+# Niveau 
+
+```{r}
+set.seed(46)
+
+n <- 100
+Tmax <- 50
+
+t_obs <- c(0, sort(runif(n, 0, Tmax)))
+```
+
+
+```{r}
+MC_wiener(
+  N = 5000,
+  scenario = sim_hwp,
+  t_obs = t_obs,
+  mu = 1,
+  sigma = 0.5
+)
+```
+
+```{r}
+n =55
+t_obs <- c(0, sort(runif(n, 0, Tmax)))
+puissance <- MC_wiener(
+  N = 1000,
+  scenario = sim_nhwp,
+  t_obs = t_obs,
+  sigma_true = 1,
+  alpha = 0.5
+)
+
+puissance
+```

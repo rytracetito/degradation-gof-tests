@@ -1,0 +1,389 @@
+---
+title: 'Approche de Grall Maes : Cas de plusieurs trajectoires'
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+# Construction de la grille commune 
+grille <- function(trajectoires) {
+  total_time <- sum(sapply(trajectoires, function(tr) max(tr$t)))
+  total_obs <- sum(sapply(trajectoires, function(tr) length(tr$t) - 1))
+  h <- total_time / total_obs
+  T_max <- max(sapply(trajectoires, function(tr) max(tr$t)))
+  seq(0, T_max, by = h)
+}
+
+# Pont gamma multiples
+pont_gamma_multi <- function(traj, a, t_fine) {
+  tol <- 1e-10
+  h <- diff(t_fine)[1]
+  res <- list()
+  for (i in seq_along(traj)) {
+    tr <- traj[[i]]
+    t_obs <- tr$t
+    X_obs <- tr$X
+    t_n <- max(t_obs)
+    t_star <- t_fine[t_fine < t_n - tol]
+    t_star <- c(t_star, t_n)
+    K <- length(t_star)
+    Y <- numeric(K)
+    Y[1] <- X_obs[1]
+    if (K > 2) {
+      for (j in 2:(K-1)) {
+        t_cible <- t_star[j]
+        inter <- max(t_obs[t_obs <= t_cible])
+        if (inter > t_star[j-1]) {
+          t_inf <- inter
+          x_inf <- X_obs[t_obs == inter]
+        } else {
+          t_inf <- t_star[j-1]
+          x_inf <- Y[j-1]
+        }
+        t_sup <- min(t_obs[t_obs > t_cible])
+        x_sup <- X_obs[t_obs == t_sup]
+        y <- rbeta(1, a * (t_cible - t_inf), a * (t_sup - t_cible))
+        Y[j] <- x_inf + (x_sup - x_inf) * y
+      }
+    }
+    Y[K] <- X_obs[length(X_obs)]
+    diff_Y <- diff(Y)
+    dt <- diff(t_star)
+    keep <- which(abs(dt - h) <= tol)
+    diff_Y_iid <- diff_Y[keep]
+    res[[i]] <- list(t_star = t_star, X_star = Y, diff_X = diff_Y, diff_X_iid = diff_Y_iid)
+  }
+  return(res)
+}
+
+```
+
+```{r}
+# Estimation des paramètres : méthode des moments
+estimer_multi <- function(traj) {
+  all_dt <- c(); all_dx <- c()
+  for (i in seq_along(traj)) {
+    dt <- diff(traj[[i]]$t)
+    dx <- diff(traj[[i]]$X)
+    all_dt <- c(all_dt, dt)
+    all_dx <- c(all_dx, dx)
+  }
+  mu_hat <- sum(all_dx) / sum(all_dt)
+  denom <- sum(all_dt) - sum(all_dt^2)/sum(all_dt)
+  nu_hat <- sum((all_dx - mu_hat * all_dt)^2) / denom
+  a_hat <- mu_hat^2 / nu_hat
+  b_hat <- mu_hat / nu_hat
+  return(c(a_hat = a_hat, b_hat = b_hat))
+}
+```
+
+
+# Application 1
+
+```{r}
+# Simulation des trajectoires
+set.seed(73)
+simuler_gamma <- function(a, b, temps_obs) {
+  delta_t <- diff(c(0, temps_obs))
+  delta_X <- rgamma(length(delta_t), shape = a * delta_t, scale = 1/b)
+  X <- cumsum(c(0, delta_X))
+  list(t = c(0, temps_obs), X = X)
+}
+
+t_obs1 <- c(1, 3, 6, 10)
+t_obs2 <- c(2, 5, 9)
+
+a = 2
+b = 0.5
+traj1 <- simuler_gamma(a, b, t_obs1)
+traj2 <- simuler_gamma(a, b, t_obs2)
+trajectoires <- list(traj1, traj2)
+
+```
+
+
+```{r}
+params <- estimer_multi(trajectoires)
+a_hat <- params["a_hat"]
+b_hat <- params["b_hat"]
+params
+```
+
+```{r}
+t_fine <- grille(trajectoires)
+t_fine 
+cat("Pas h =", diff(t_fine)[1], "\n")
+```
+
+
+```{r}
+
+# Pont gamma
+res <- pont_gamma_multi(trajectoires, a_hat, t_fine)
+
+# Incréments i.i.d. pour les tests
+dx <- unlist(lapply(res, function(x) x$diff_X_iid))
+ 
+```
+
+## Test de Henze
+
+```{r}
+library(gofgamma)
+test.HME1(dx, a = 1, boot = 200, alpha = 0.05)
+
+```
+
+
+# Test de villasenor
+
+```{r}
+library(goft)
+
+res2 <- gamma_test(dx)
+print(res2)
+```
+
+
+
+```{r}
+# Visualisation de la première trajectoire
+plot(traj1$t, traj1$X, type = "b", col = "red", pch = 16, 
+     xlab = "Temps", ylab = "Dégradation", 
+     main = "Points Observés vs Points simulés",
+     ylim = range(c(traj1$X, traj2$X, res[[1]]$X_star, res[[2]]$X_star)))
+lines(res[[1]]$t_star, res[[1]]$X_star, type = "b", col = "blue", pch = 16)
+lines(traj2$t, traj2$X, type = "b", col = "red", pch = 16)
+lines(res[[2]]$t_star, res[[2]]$X_star, type = "b", col = "blue", pch = 16)
+```
+
+
+# Application 2
+
+```{r}
+set.seed(46)
+n1 <- 15
+t_obs1 <- sort(runif(n1, min = 1, max = 10))
+n2 <- 11
+t_obs2 <- seq(2, 10, length.out = n2)
+
+# Simulation
+traj1 <- simuler_gamma(2, 1, t_obs1)
+traj2 <- simuler_gamma(2, 1, t_obs2)
+traj <- list(traj1, traj2)
+```
+
+```{r}
+params <- estimer_multi(traj )
+a_hat <- params["a_hat"]
+b_hat <- params["b_hat"]
+params
+```
+
+
+```{r}
+# Construction de la grille commune
+grille <- function(trajectoires) {
+  total_time <- sum(sapply(trajectoires, function(tr) max(tr$t)))
+  total_obs <- sum(sapply(trajectoires, function(tr) length(tr$t) - 1))
+  h <- total_time / total_obs
+  T_max <- max(sapply(trajectoires, function(tr) max(tr$t)))
+  seq(0, T_max, by = h)
+}
+t_fine <- grille(traj)
+```
+
+```{r}
+res <- pont_gamma_multi(traj, a_hat, t_fine)
+
+# Incréments i.i.d. pour les tests
+dy <- unlist(lapply(res, function(x) x$diff_X_iid))
+head(dy)
+```
+
+
+```{r}
+
+library(gofgamma)
+test.HME1(dy, a = 1, boot = 200, alpha = 0.05)
+
+```
+
+```{r}
+plot(traj1$t, traj1$X, type = "b", col = "red", pch = 16, 
+     xlab = "Temps", ylab = "Dégradation", 
+     ylim = range(c(traj1$X, traj2$X, res[[1]]$X_star, res[[2]]$X_star)))
+lines(res[[1]]$t_star, res[[1]]$X_star, type = "b", col = "blue", pch = 4)
+lines(traj2$t, traj2$X, type = "b", col = "darkred", pch = 17)
+lines(res[[2]]$t_star, res[[2]]$X_star, type = "b", col = "cyan", pch = 5)
+legend("topleft", 
+       legend = c("Traj1 observée", "Traj1 pont gamma", "Traj2 observée", "Traj2 pont gamma"),
+       col = c("red", "blue", "darkred", "cyan"), 
+       pch = c(16, 4, 17, 5), lty = 1)
+
+
+```
+# Application 3
+
+```{r}
+# Data
+library(readr)
+fichier <- "C:/Users/ADMIN/Desktop/Stage UPPA/Code R/Code T6/Dim_1.csv"
+M <- as.matrix(read.csv2(fichier, header = FALSE))
+
+# 2. Définition des temps (propres à chaque trajectoire)
+temps_trajectoires <- list(
+  c(0, 1.0, 2.2, 3.5, 4.8, 6.0, 7.1, 8.3, 9.2, 10.0),   
+  c(0, 0.8, 1.9, 3.0, 4.2, 5.5, 6.7, 7.9, 9.0, 10.2),   
+  c(0, 1.2, 2.5, 3.8, 5.0, 6.2, 7.4, 8.6, 9.8, 11.0),   
+  c(0, 0.9, 2.0, 3.2, 4.5, 5.8, 7.0, 8.2, 9.5, 10.5),   
+  c(0, 1.1, 2.3, 3.6, 4.9, 6.1, 7.3, 8.5, 9.7, 10.8),   
+  c(0, 0.7, 1.8, 2.9, 4.1, 5.3, 6.5, 7.7, 8.9, 10.1),   
+  c(0, 1.3, 2.6, 3.9, 5.2, 6.4, 7.6, 8.8, 10.0, 11.2),  
+  c(0, 0.6, 1.7, 2.8, 4.0, 5.2, 6.4, 7.6, 8.8, 10.0),   
+  c(0, 1.4, 2.7, 4.0, 5.3, 6.6, 7.9, 9.2, 10.4, 11.6),  
+  c(0, 0.5, 1.6, 2.7, 3.9, 5.1, 6.3, 7.5, 8.7, 9.9)     
+)
+
+n_traj <- ncol(M)
+trajectoires <- list()
+for (i in 1:n_traj) {
+  trajectoires[[i]] <- list(
+    t = temps_trajectoires[[i]],
+    X = M[, i]
+  )
+}
+```
+
+
+```{r}
+# Calcul du pas commun h 
+total_time <- sum(sapply(trajectoires, function(tr) max(tr$t)))
+total_obs <- sum(sapply(trajectoires, function(tr) length(tr$t) - 1))
+h <- total_time / total_obs
+cat("Pas commun h =", h)
+```
+
+
+```{r}
+# Grille commune 
+T_max <- max(sapply(trajectoires, function(tr) max(tr$t)))
+t_fine <- seq(0, T_max, by = h)
+t_fine
+```
+
+
+```{r}
+# Estimation de a 
+all_dt <- c()
+all_dx <- c()
+for (i in 1:n_traj) {
+  dt <- diff(trajectoires[[i]]$t)
+  dx <- diff(trajectoires[[i]]$X)
+  all_dt <- c(all_dt, dt)
+  all_dx <- c(all_dx, dx)
+}
+mu_hat <- sum(all_dx) / sum(all_dt)
+denom <- sum(all_dt) - sum(all_dt^2)/sum(all_dt)
+nu_hat <- sum((all_dx - mu_hat * all_dt)^2) / denom
+a_hat <- mu_hat^2 / nu_hat
+b_hat <- mu_hat / nu_hat
+cat("a_hat =", a_hat, ", b_hat =", b_hat)
+```
+
+
+```{r}
+# Application du pont gamma 
+res <- pont_gamma_multi(trajectoires, a_hat, t_fine)
+```
+
+
+```{r}
+# Visualisation des 3 premières trajectoires 
+
+indices <- c(1, 2, 4)  
+xlim_global <- range(unlist(lapply(indices, function(i) 
+  c(trajectoires[[i]]$t, res[[i]]$t_star))))
+ylim_global <- range(unlist(lapply(indices, function(i) 
+  c(trajectoires[[i]]$X, res[[i]]$X_star))))
+
+plot(NA, xlim = xlim_global, ylim = ylim_global,
+     xlab = "Temps", ylab = "Dégradation", main = "Trajectoires (rouge = observé, bleu = pont gamma)")
+
+for (k in seq_along(indices)) {
+  i <- indices[k]
+  lines(trajectoires[[i]]$t, trajectoires[[i]]$X, type = "b", col = "red", pch = 16)
+  lines(res[[i]]$t_star, res[[i]]$X_star, type = "b", col = "blue", pch = 16)
+}
+legend("topleft", legend = c("Observé", "Pont gamma"), col = c("red", "blue"), pch = c(16, 16))
+```
+
+
+```{r}
+# Tests d'adéquation sur les incréments concaténés
+
+dx <- unlist(lapply(res, function(x) x$diff_X))
+library(gofgamma)
+test.HME1(dx, a = 1, boot = 200, alpha = 0.05)
+
+library(goft)
+gamma_test(dx)
+```
+
+
+
+
+# Apllication 4
+```{r}
+set.seed(46)
+
+# Fonction de simulation NHGP 
+sim_NHGP <- function(t_obs, a, b, alpha) {
+  A <- function(t) a * t^alpha
+  n <- length(t_obs)
+  X <- numeric(n)
+  X[1] <- 0
+  for (i in 2:n) {
+    delta_X <- rgamma(1, shape = A(t_obs[i]) - A(t_obs[i-1]), scale = 1/b)
+    X[i] <- X[i-1] + delta_X
+  }
+  return(data.frame(t = t_obs, X = X))
+}
+
+n_traj <- 30            
+n_obs <- 25             
+alpha <- 2             
+a <- 0.5
+b <- 1
+
+trajectoires <- list()
+for (i in 1:n_traj) {
+  t_obs <- sort(runif(n_obs, min = 1, max = 10))
+  sim <- sim_NHGP(c(0, t_obs), a = a, b = b, alpha = alpha)
+  trajectoires[[i]] <- list(t = sim$t, X = sim$X)
+}
+
+# Estimation 
+params <- estimer_multi(trajectoires)
+a_hat <- params["a_hat"]
+b_hat <- params["b_hat"]
+cat("a_hat =", a_hat, ", b_hat =", b_hat, "\n")
+
+# Grille commune
+t_fine <- grille(trajectoires)
+
+# Pont gamma avec grille commune
+res <- pont_gamma_multi(trajectoires, a_hat, t_fine)
+
+# Incréments i.i.d.
+dx <- unlist(lapply(res, function(x) x$diff_X_iid))
+
+# Tests d'adéquation 
+library(gofgamma)
+test.HME1(dx, a = 1, boot = 200, alpha = 0.05)
+
+library(goft)
+gamma_test(dx)
+```
+

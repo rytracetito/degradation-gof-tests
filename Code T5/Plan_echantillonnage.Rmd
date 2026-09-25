@@ -1,0 +1,186 @@
+---
+title: "Génération des temps d'observation : Plan d'échantillonnage"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Cas 1:  Aléatoires uniformes
+
+```{r}
+# Génération de temps aléatoires suivant une loi uniforme entre 0 et tmax
+
+n_obs <- 15
+tmax <- 50
+
+set.seed(47)
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+
+# Visualisation
+stripchart(t_obs_irreg,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Répartition des temps d'inspection irréguliers",
+           xlab = "Temps",
+           ylab = "Observations")
+
+```
+
+# Cas 2: Temps réguliers par morceaux
+
+
+```{r}
+
+# cas 2 : temps d'observation réguliers par intervalle avec pas différents
+
+tmax <- 50
+
+t_obs_reg <- sort(c(
+  seq(0, tmax/4, length.out = 8),
+  seq(tmax/4, tmax/2, length.out = 5)[-1],
+  seq(tmax/2, 3*tmax/4, length.out = 3)[-1],
+  seq(3*tmax/4, tmax, length.out = 2)[-1]
+))
+
+stripchart(t_obs_reg,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Temps réguliers par morceaux (8,4,2,1)",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+
+```{r}
+n <- 10
+tmax <- 100
+
+p <- c(4, 3, 2, 1)              
+k <- round(n * p / sum(p))
+k[1] <- k[1] + (n - sum(k))    
+
+t_obs_reg <- c(
+  seq(0, tmax/4,      length.out = k[1]),
+  seq(tmax/4, tmax/2, length.out = k[2] + 1)[-1],
+  seq(tmax/2, 3*tmax/4, length.out = k[3] + 1)[-1],
+  seq(3*tmax/4, tmax, length.out = k[4] + 1)[-1]
+)
+
+stripchart(t_obs_reg,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Temps réguliers par morceaux (8,4,2,1)",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+
+# temps réguliers par morceaux (ordre inversé)
+
+```{r}
+
+tmax <- 50
+
+t_obs_reg_inv <- sort(c(
+  seq(0, tmax/4, length.out = 1),
+  seq(tmax/4, tmax/2, length.out = 3)[-1],
+  seq(tmax/2, 3*tmax/4, length.out = 4)[-1],
+  seq(3*tmax/4, tmax, length.out = 10)[-1]
+))
+
+stripchart(t_obs_reg_inv,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Temps réguliers par morceaux (ordre inversé)",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+```{r}
+
+
+# temps régulier
+
+tmax <- 50
+n_obs <- 15
+
+t_obs_reg <- seq(0, tmax, length.out = n_obs)
+
+stripchart(t_obs_reg,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Temps d'inspection réguliers (pas constant)",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+```{r}
+# Cas 1 : temps concentrés au début
+tmax <- 50
+n_obs <- 100
+
+t_obs_beta1 <- sort(tmax * rbeta(n_obs, 2, 5))
+
+stripchart(t_obs_beta1,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Temps d'inspection - loi Beta(2,5)",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+
+```{r}
+# Cas 2 : temps concentrés à la fin
+tmax <- 50
+n_obs <- 100
+
+t_obs_beta2 <- sort(tmax * rbeta(n_obs, 5, 1))
+
+stripchart(t_obs_beta2,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Temps d'inspection - loi Beta(5,1)",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+```{r}
+# Cas 1 : temps concentrés au début
+tmax <- 50
+n_obs <- 15
+
+t_obs_beta1 <- sort(tmax * rbeta(n_obs, 2, 5))
+
+stripchart(t_obs_beta1,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Temps d'inspection - loi Beta(2,5)",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+
+```{r}
+# Cas 2 : temps concentrés à la fin
+tmax <- 50
+n_obs <- 50
+
+t_obs_beta2 <- sort(tmax * rbeta(n_obs, 5, 1))
+
+stripchart(t_obs_beta2,
+           method = "stack",
+           pch = 19,
+           col = "steelblue",
+           main = "Temps d'inspection - loi Beta(5,1)",
+           xlab = "Temps",
+           ylab = "Observations")
+```
+

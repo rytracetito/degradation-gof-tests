@@ -1,0 +1,710 @@
+---
+title: 'Implémentation de la fonction gof gp : Niveau et puissance des tests'
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+# Fonction `gamma_bridge`
+
+## Objectif
+
+Générer des observations à pas de temps régulier à partir d’un processus gamma observé à des instants irréguliers, en utilisant la propriété du pont gamma (gamma bridge).
+
+## Principe
+
+Étant donné deux réalisations \((t_A, x_A)\) et \((t_B, x_B)\) d’un processus gamma de paramètre de forme \(a\), la variable
+
+\[
+Y = \frac{X(t) - X(t_A)}{X(t_B) - X(t_A)} \sim \text{Beta}\bigl(a(t - t_A),\, a(t_B - t)\bigr)
+\]
+
+permet d’interpoler \(X(t)\) pour tout \(t \in [t_A, t_B]\).
+
+## Paramètres
+
+| Paramètre | Description |
+|-----------|-------------|
+| `t_obs`   | Vecteur des temps d’observation  |
+| `x_obs`   | Vecteur des dégradations observées aux temps `t_obs` |
+| `a`       | Paramètre de forme du processus gamma (strictement positif) |
+| `dt_eq`   | Pas de temps régulier cible (strictement positif) |
+
+
+```{r}
+
+gamma_bridge <- function(t_obs, x_obs, a, dt_eq) {
+  if (any(diff(t_obs) <= 0)) stop("Les temps doivent être strictement croissants")
+  if (a <= 0) stop("Le paramètre a doit être positif")
+  if (dt_eq <= 0) stop("dt_eq doit être positif")
+
+  t_full <- c(0, t_obs)
+  x_full <- c(0, x_obs)
+
+  Np <- floor(max(t_obs) / dt_eq)
+
+  t_gen <- numeric(Np)
+  x_gen <- numeric(Np)
+
+  t_prev <- 0
+  x_prev <- 0
+
+  for (i in 1:Np) {
+    ti <- i * dt_eq
+
+    j <- which(t_full >= ti)[1]
+    t_sup <- t_full[j]
+    x_sup <- x_full[j]
+
+    if (t_full[j - 1] > t_prev) {
+      t_inf <- t_full[j - 1]
+      x_inf <- x_full[j - 1]
+    } else {
+      t_inf <- t_prev
+      x_inf <- x_prev
+    }
+
+    alpha1 <- a * (ti - t_inf)
+    alpha2 <- a * (t_sup - ti)
+    y <- rbeta(1, alpha1, alpha2)
+
+    x_new <- x_inf + (x_sup - x_inf) * y
+
+    t_gen[i] <- ti
+    x_gen[i] <- x_new
+    t_prev <- ti
+    x_prev <- x_new
+  }
+
+  data.frame(time = t_gen, value = x_gen)
+}
+```
+
+# Fonction `simulate_gamma_rwa`
+
+## Objectif
+
+Simuler des trajectoires d’un processus gamma homogène ou non homogène par la méthode de la marche aléatoire (Random Walk Approximation, RWA).
+
+## Principe
+
+Le processus gamma \(\{X(t), t \geq 0\}\) est défini par :
+
+- \(X(0) = 0\)
+- Pour \(0 \leq s < t\), l’incrément \(X(t) - X(s)\) suit une loi gamma de paramètres :  
+  **forme** = \(A(t) - A(s)\) et **échelle** = `scale` (ou **taux** = \(1/\text{scale}\)).
+
+La fonction `simulate_gamma_rwa` discrétise le temps sur une grille régulière ou irrégulière (fournie par l’utilisateur) et génère les incréments indépendants en tirant des réalisations de lois gamma dont les paramètres de forme sont déterminés par les accroissements de la fonction \(A(t)\).
+
+## Paramètres
+
+| Paramètre | Description |
+|-----------|-------------|
+| `times`   | Vecteur strictement croissant des instants \(t_0 < t_1 < \dots < t_N\). |
+| `A`       | Fonction de forme \(A(t)\). |
+| `a`       | Scalaire pour le cas homogène : \(A(t) = a \cdot t\). |
+| `scale`   | Paramètre d’échelle commun à tous les incréments (par défaut 1). |
+| `nsim`    | Nombre de trajectoires indépendantes à simuler (entier positif). |
+
+
+## Retour
+
+Une matrice de dimension \((\text{length(times)} \times \text{nsim})\) où :
+
+- Chaque colonne représente une trajectoire,
+- Chaque ligne correspond à un instant \(t_i\).
+
+
+```{r}
+
+simulate_gamma_rwa <- function(times, A = NULL, a = NULL, scale = 1, nsim = 1) {
+  if (!is.numeric(times) || !is.vector(times)) stop("'times' doit être un vecteur numérique.")
+  if (length(times) < 2) stop("'times' doit contenir au moins deux points.")
+  if (any(diff(times) <= 0)) stop("'times' doit être strictement croissant.")
+  if (!is.numeric(nsim) || nsim < 1 || nsim != floor(nsim)) stop("'nsim' doit être un entier positif.")
+  if (scale <= 0) stop("'scale' doit être positif.")
+  
+  if (!is.null(A) && is.function(A)) {
+    A_vals <- A(times)
+  } else if (!is.null(a) && is.numeric(a) && length(a) == 1) {
+    A_vals <- a * times
+  } else {
+    stop("Il faut fournir soit une fonction 'A', soit un scalaire 'a'.")
+  }
+  
+  if (any(diff(A_vals) <= 0)) stop("La fonction A doit être strictement croissante.")
+  diff_A <- diff(A_vals)
+  n_intervals <- length(diff_A)
+  increments <- matrix(rgamma(n_intervals * nsim, shape = rep(diff_A, each = nsim), scale = scale),
+                       nrow = n_intervals, ncol = nsim, byrow = TRUE)
+  X <- rbind(rep(0, nsim), apply(increments, 2, cumsum))
+  
+  rownames(X) <- paste0("t", seq_along(times) - 1)
+  colnames(X) <- paste0("sim", seq_len(nsim))
+  return(X)
+}
+
+```
+
+
+# Estimation des paramètres 
+
+```{r}
+# Méthode des moments
+
+estimer <- function(t, x) { 
+  
+  dt <- diff(t)
+  dx <- diff(x)
+  
+  mu_hat <- sum(dx) / sum(dt)
+  denom <- sum(dt) - sum(dt^2) / sum(dt)
+  
+  if (denom <= 0) {
+    stop("Dénominateur nul ou négatif : données inadaptées")
+  }
+  nu_hat <- sum((dx - mu_hat * dt)^2) / denom
+  a_hat <- mu_hat^2 / nu_hat
+  b_hat <- mu_hat / nu_hat
+  c(a = a_hat, b = b_hat)
+}
+
+```
+
+# Fonction `tri_sample`
+
+## Objectif
+
+Réordonner les observations d’un processus gamma (incréments de temps et de dégradation) afin de faciliter l’interpolation par pont gamma. Le tri vise à minimiser l’erreur d’interpolation en rapprochant les temps cumulés des observations des temps réguliers cibles.
+
+## Principe
+
+Lorsque les inspections sont irrégulières, la construction d’un échantillon à pas de temps égal par pont gamma est d’autant plus précise que les temps d’observation originaux sont proches des instants réguliers \(i \cdot \Delta t_{\text{eq}}\). L’algorithme de tri proposé dans l’article construit une permutation des couples \((\Delta t_i, \Delta x_i)\) telle que les temps cumulés \(\tilde{t}_i = \sum_{j=1}^{i} \Delta t_j\) se rapprochent au mieux des temps réguliers \(i \cdot \Delta t_{\text{eq}}\) tout en vérifiant \(\tilde{t}_i \geq i \cdot \Delta t_{\text{eq}}\) (condition nécessaire pour utiliser le pont gamma).
+
+## Paramètres
+
+| Paramètre | Description |
+|-----------|-------------|
+| `dt`      | Vecteur des incréments de temps \(\Delta t_i\). |
+| `dx`      | Vecteur des incréments de dégradation \(\Delta x_i\). |
+| `dt_eq`   | Pas de temps régulier cible \(\Delta t_{\text{eq}}\). |
+
+
+## Retour
+
+Une liste contenant deux vecteurs :
+
+- `dt` : incréments de temps triés (selon l’ordre déterminé),
+- `dx` : incréments de dégradation associés.
+
+
+
+```{r}
+
+tri_sample <- function(dt, dx, dt_eq) {
+  N <- length(dt)
+  dt_c <- dt
+  dx_c <- dx
+  dt_s <- numeric(N)
+  dx_s <- numeric(N)
+  max_i <- which.max(dt_c)
+  dt_s[1] <- dt_c[max_i]
+  dx_s[1] <- dx_c[max_i]
+  dt_c <- dt_c[-max_i]
+  dx_c <- dx_c[-max_i]
+  for (i in 2:N) {
+    cum_time <- sum(dt_s[1:(i - 1)])
+    diffs <- (cum_time + dt_c) - i * dt_eq
+    valid <- which(diffs >= 0)
+    if (length(valid) > 0) {
+      choix <- valid[which.min(diffs[valid])]
+    } else {
+      choix <- which.max(diffs)
+    }
+    dt_s[i] <- dt_c[choix]
+    dx_s[i] <- dx_c[choix]
+    dt_c <- dt_c[-choix]
+    dx_c <- dx_c[-choix]
+  }
+  list(dt = dt_s, dx = dx_s)
+}
+
+```
+
+## Test de Henze
+
+```{r}
+gof.gp.henze <- function(dx, a = 1, boot = 1000, alpha = 0.05) {
+  if (!requireNamespace("gofgamma", quietly = TRUE)) {
+    install.packages("gofgamma")
+  }
+  library(gofgamma)
+  res1 <- test.HME1(dx, a = a, boot = boot, alpha = alpha)
+  return(res1)
+}
+```
+
+# Test de villasenor (VGE)
+
+```{r}
+gof.gp.vge <- function(dx, B = 1000) {
+  if (any(dx <= 0)) stop("dx doit contenir des valeurs positives")
+  
+  m <- mean(dx)
+  v <- var(dx)
+  shape <- m^2 / v
+  rate  <- m / v
+  
+  if (!requireNamespace("goft", quietly = TRUE)) install.packages("goft")
+  T_obs <- abs(as.numeric(suppressWarnings(goft::gamma_test(dx))$statistic))
+  
+  T_boot <- replicate(B, {
+    dx_star <- rgamma(length(dx), shape = shape, rate = rate)
+    abs(as.numeric(suppressWarnings(goft::gamma_test(dx_star))$statistic))
+  })
+  
+  p_val <- mean(T_boot >= T_obs, na.rm = TRUE)
+  
+  list(statistic = T_obs, p.value = p_val, shape = shape, rate = rate)
+}
+```
+# Test de Kolmogorov - Sirnov
+
+```{r}
+# Test de Kolmogorov‑Smirnov avec bootstrap paramétrique
+gof.gp.ks <- function(dx, B = 1000) {
+  # Estimation des paramètres de la loi gamma par la méthode des moments
+  m <- mean(dx)
+  v <- var(dx)
+  shape_hat <- m^2 / v
+  rate_hat <- m / v
+  D_obs <- ks.test(dx, "pgamma", shape = shape_hat, rate = rate_hat)$statistic
+  D_boot <- replicate(B, {
+    dx_boot <- rgamma(length(dx), shape = shape_hat, rate = rate_hat)
+    m_b <- mean(dx_boot)
+    v_b <- var(dx_boot)
+    shape_b <- m_b^2 / v_b
+    rate_b <- m_b / v_b
+    ks.test(dx_boot, "pgamma", shape = shape_b, rate = rate_b)$statistic
+  })
+  p_val <- mean(D_boot >= D_obs)
+  structure(list(
+    statistic = D_obs,
+    p.value = p_val,
+    method = "Kolmogorov-Smirnov with parametric bootstrap",
+    data.name = deparse(substitute(dx))
+  ), class = "htest")
+}
+```
+## Test de Betsch et  Ebner
+
+```{r}
+gof.gp.betsch <- function(dx, B = 1000) {
+if(!requireNamespace("gofgamma", quietly = TRUE))
+install.packages("gofgamma")
+library(gofgamma)
+# Test de Betsch & Ebner
+res <- test.BE(dx, boot = B)
+return(res)
+}
+```
+
+# Fonction `gof.gp`
+
+## Objectif
+
+Appliquer un test d’adéquation à un processus gamma homogène à partir d’observations (temps, dégradation). La fonction gère les cas d’inspections régulières (incréments i.i.d.) et irrégulières (interpolation par pont gamma avant test).
+
+## Principe
+
+- Si les inspections sont régulières (tous les \(\Delta t_i\) égaux), les incréments \(\Delta X_i\) sont i.i.d. de loi Gamma(\(a \Delta t, b\)). On applique directement le test choisi sur ces incréments.
+- Si les inspections sont irrégulières, on estime d’abord le paramètre de forme \(a\) du processus (par la méthode des moments via `estimer`), puis on construit un échantillon à pas de temps égal \(\Delta t_{\text{eq}} = t_N / N\) en utilisant `gamma_bridge`. On peut éventuellement trier les observations au préalable avec `tri_sample` pour améliorer la puissance. Le test est alors appliqué aux incréments interpolés.
+
+## Paramètres
+
+| Paramètre | Description |
+|-----------|-------------|
+| `X`       | Matrice ou data.frame à deux colonnes : première colonne = temps d’observation colonne = dégradation. |
+| `test`    | Chaîne de caractères indiquant le test à utiliser : `"Henze"`, `"VGE"`, `"KS"`, `"BET"`. |
+| `sort`    | Booléen (par défaut `FALSE`). Si `TRUE`, applique l’algorithme de tri `tri_sample` avant l’interpolation (uniquement en cas irrégulier). |
+
+## Retour
+
+Un objet de classe `htest` contenant au minimum :
+
+- `statistic` : valeur de la statistique du test,
+- `p.value` : p‑valeur (calculée selon la méthode propre à chaque test),
+- `method` : description du test,
+- `data.name` : nom de l’objet en entrée.
+
+
+```{r}
+# Fonction principale
+gof.gp <- function(X, test, sort = FALSE) {
+  t <- X[, 1]
+  x <- X[, 2]
+  dt <- diff(t)
+  dx <- diff(x)
+  tol <- 1e-8
+  
+  # Cas régulier (inspections périodiques)
+  if (all(abs(dt - dt[1]) < tol)) {
+    dx_test <- dx
+  } else {
+    # Cas irrégulier : interpolation gamma bridge avec a estimé par estimer()
+    params <- estimer(t, x)   # Utilisation de l'unique fonction d'estimation
+    a_ref <- params["a"]
+    dt_eq <- max(t) / length(dt)
+    interp <- gamma_bridge(t, x, a_ref, dt_eq)
+    dx_test <- diff(c(0, interp$value))
+    if (sort) {
+      dt_orig <- dt
+      dx_orig <- dx
+      tri <- tri_sample(dt_orig, dx_orig, dt_eq)
+      t_tri <- cumsum(c(0, tri$dt))[-1]
+      x_tri <- cumsum(c(0, tri$dx))[-1]
+      interp_tri <- gamma_bridge(t_tri, x_tri, a_ref, dt_eq)
+      dx_test <- diff(c(0, interp_tri$value))
+    }
+  }
+  
+  if (test == "Henze") return(gof.gp.henze(dx_test))
+  if (test == "VGE")   return(gof.gp.vge(dx_test))
+  if (test == "KS")    return(gof.gp.ks(dx_test))
+  if (test == "BET")   return(gof.gp.betsch(dx_test))
+  stop("Test inconnu")
+}
+```
+
+
+```{r}
+# ============================================================================
+# Exemples d’application
+# ============================================================================
+
+# Exemple 1 : Processus simulé avec incréments non gamma (H0 fausse)
+set.seed(123)
+t <- seq(0, 4, by = 0.1)
+x <- cumsum(runif(length(t)-1, min = 0, max = 2))
+x <- c(0, x)
+X <- cbind(t, x)
+```
+
+
+```{r}
+print(gof.gp(X, "Henze"))
+```
+
+
+```{r}
+print(gof.gp(X, "VGE"))
+```
+
+
+```{r}
+print(gof.gp(X, "BET"))
+```
+
+
+```{r}
+# Exemple 2 : Processus gamma à temps réguliers (H0 vraie)
+set.seed(123)
+t_reg <- seq(0, 50, by = 1)
+n <- length(t_reg) - 1
+dx_reg <- rgamma(n, shape = 2, rate = 1)
+x_reg <- c(0, cumsum(dx_reg))
+X_reg <- cbind(t_reg, x_reg)
+```
+
+
+```{r}
+print(gof.gp(X_reg, "VGE"))
+```
+
+
+```{r}
+print(gof.gp(X_reg, "Henze"))
+```
+
+
+```{r}
+print(gof.gp(X_reg, "BET"))
+```
+
+
+```{r}
+# Exemple 3 : Processus gamma à temps irréguliers (H0 vraie)
+set.seed(123)
+t_irr <- sort(runif(50, 0, 50))
+dt_irr <- diff(c(0, t_irr))
+dx_irr <- rgamma(50, shape = 2 * dt_irr, rate = 1)
+x_irr <- c(0, cumsum(dx_irr))
+X_irr <- cbind(c(0, t_irr), x_irr)
+```
+
+
+```{r}
+print(gof.gp(X_irr, "Henze"))
+```
+
+
+```{r}
+print(gof.gp(X_irr, "VGE"))
+```
+
+
+```{r}
+print(gof.gp(X_irr, "KS"))
+```
+
+
+```{r}
+print(gof.gp(X_irr, "BET"))
+```
+
+
+# Étude du niveau et de la puissance des tests selon différents scénarios
+
+## Processus gamma homogène (H0) – inspections régulières
+
+```{r}
+sim_HGP <- function(n, a, b, tmax = 100) {
+  t <- seq(0, tmax, length.out = n)
+  X <- simulate_gamma_rwa(times = t, a = a, scale = 1/b, nsim = 1)
+  return(data.frame(t = t, X = X[, 1]))
+}
+```
+
+## Processus gamma homogène – inspections irrégulières
+
+```{r}
+sim_HGP_irregular <- function(t_obs, a, b) {
+  X <- simulate_gamma_rwa(times = t_obs, a = a, scale = 1/b, nsim = 1)
+  return(data.frame(t = t_obs, X = X[, 1]))
+}
+```
+
+## Processus gamma non homogène (alternative) – inspections régulières
+
+```{r}
+sim_NHGP <- function(n, a, b, alpha, tmax = 100) {
+  t <- seq(0, tmax, length.out = n)
+  A_func <- function(t) a * t^alpha
+  X <- simulate_gamma_rwa(times = t, A = A_func, scale = 1/b, nsim = 1)
+  return(data.frame(t = t, X = X[, 1]))
+}
+```
+
+
+
+## Processus gamma non homogène – inspections irrégulières
+```{r}
+sim_NHGP_irregular <- function(t_obs, a, b, alpha) {
+  A_func <- function(t) a * t^alpha
+  X <- simulate_gamma_rwa(times = t_obs, A = A_func, scale = 1/b, nsim = 1)
+  return(data.frame(t = t_obs, X = X[, 1]))
+}
+```
+
+
+# Fonction d'étude Monte Carlo
+
+## Cas 1 : Inspaections régulières
+
+```{r}
+# Étude Monte Carlo
+library(future.apply)
+MC_test <- function(N = 50,
+                    scenario,
+                    a = 2,
+                    b = 1,
+                    alpha = NULL,
+                    tmax = 100,
+                    n = 100,
+                    ncores = parallel::detectCores() - 1) {
+  
+  library(future.apply)
+  plan(multisession, workers = ncores)
+  
+  une_iter <- function(i) {
+    # Génération selon le scénario
+    if (!is.null(alpha)) {
+      X <- scenario(n = n, a = a, b = b, alpha = alpha, tmax = tmax)
+    } else {
+      X <- scenario(n = n, a = a, b = b, tmax = tmax)
+    }
+    
+    # Henze : rejet si T.value > cv
+    res_h <- gof.gp(X, "Henze")
+    rej_h <- as.integer(res_h$T.value > res_h$cv)
+    
+    # VGE : rejet si p.value < 0.05
+    res_v <- gof.gp(X, "VGE")
+    rej_v <- as.integer(res_v$p.value < 0.05)
+    
+    # KS : rejet si p.value < 0.05
+    res_k <- gof.gp(X, "KS")
+    rej_k <- as.integer(res_k$p.value < 0.05)
+    
+    # BET : rejet si T.value > cv
+    res_b <- gof.gp(X, "BET")
+    rej_b <- as.integer(res_b$T.value > res_b$cv)
+    
+    c(Henze = rej_h, VGE = rej_v, KS = rej_k, BET = rej_b)
+  }
+  
+  res <- future_sapply(1:N, une_iter, future.seed = TRUE)
+  taux <- rowMeans(res)
+  names(taux) <- c("Henze", "VGE", "KS", "BET")
+  return(taux)
+}
+```
+
+```{r}
+# =========================================================================
+# Visualisation des trajectoires sous H0 (homogène) et H1 (non homogène)
+# =========================================================================
+
+library(ggplot2)
+
+# H0 : gamma homogène
+
+data_H0 <- sim_HGP(n = 100, a = 2, b = 5, tmax = 100)
+
+# H1 : gamma non homogène (alpha = 1.5)
+
+data_H1 <- sim_NHGP(n = 100, a = 2, b = 5, alpha = 1.5, tmax = 100)
+
+# Tracé
+ggplot() +
+  geom_line(data = data_H0, aes(x = t, y = X), color = "blue", linewidth = 1) +
+  geom_line(data = data_H1, aes(x = t, y = X), color = "red", linewidth = 1) +
+  labs(title = "Trajectoires sous H0 (homogène) et H1 (non homogène)",
+       x = "Temps", y = "Dégradation") +
+  theme_minimal()
+```
+
+# Niveau et puissance des tests
+
+```{r}
+
+# Paramètres communs issus des schémas
+N <- 5000       # nombre de répétitions 
+n_obs <- 100        # nombre d’observations (inspections régulières)
+tmax <- 100         # durée totale de suivi
+a <- 2              # paramètre de forme (a) du processus
+b <- 5              # paramètre de taux (b)  échelle = 1/b
+
+```
+
+```{r}
+# Processus gamma homogène (H0)
+set.seed(123)
+taux_H0 <- MC_test(N = N, scenario = sim_HGP,
+                   a = a, b = b,
+                   n = n_obs, tmax = tmax)
+print(taux_H0)
+```
+
+```{r}
+set.seed(45)
+
+# Processus gamma non homogène (H0)
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                           a = a, b = b, alpha = 1.5,
+                           n = n_obs, tmax = tmax)
+print(taux_H1)
+```
+
+
+
+## Cas 2: Inspections irrégulières
+
+
+```{r}
+# -------------------------------------------------------------------------
+# Étude Monte Carlo pour inspections irrégulières 
+# -------------------------------------------------------------------------
+
+library(future.apply)
+
+MC_test_irreg <- function(N, scenario, t_obs, a, b, alpha = NULL, ncores = parallel::detectCores() - 1) {
+  plan(multisession, workers = ncores)
+  
+  une_iter <- function(i) {
+    # Génération selon le scénario (avec ou sans alpha)
+    if (!is.null(alpha)) {
+      X <- scenario(t_obs = t_obs, a = a, b = b, alpha = alpha)
+    } else {
+      X <- scenario(t_obs = t_obs, a = a, b = b)
+    }
+    
+    # Henze : rejet si T.value > cv
+    res_h <- gof.gp(X, "Henze")
+    rej_h <- as.integer(res_h$T.value > res_h$cv)
+    
+    # VGE : rejet si p.value < 0.05
+    res_v <- gof.gp(X, "VGE")
+    rej_v <- as.integer(res_v$p.value < 0.05)
+    
+    # KS : rejet si p.value < 0.05
+    res_k <- gof.gp(X, "KS")
+    rej_k <- as.integer(res_k$p.value < 0.05)
+    
+    # BET : rejet si T.value > cv
+    res_b <- gof.gp(X, "BET")
+    rej_b <- as.integer(res_b$T.value > res_b$cv)
+    
+    c(Henze = rej_h, VGE = rej_v, KS = rej_k, BET = rej_b)
+  }
+  
+  res <- future_sapply(1:N, une_iter, future.seed = TRUE)
+  taux <- rowMeans(res)
+  names(taux) <- c("Henze", "VGE", "KS", "BET")
+  return(taux)
+}
+```
+
+
+```{r}
+# -------------------------------------------------------------------------
+# Génération des temps d'observation irréguliers 
+# -------------------------------------------------------------------------
+set.seed(456)
+t_obs_irreg <- sort(runif(n_obs, 0, tmax))
+```
+
+```{r}
+# Visualisation de la répartition des tobs 
+
+stripchart(t_obs_irreg, 
+           method = "stack",   
+           pch = 19,           
+           col = "steelblue",
+           main = "Répartition des temps d'inspection irréguliers",
+           xlab = "Temps", 
+           ylab = "")
+```
+
+
+```{r}
+# -------------------------------------------------------------------------
+# Cas H0 : processus gamma homogène
+# -------------------------------------------------------------------------
+set.seed(123)
+taux_H0_irreg <- MC_test_irreg(N = N, scenario = sim_HGP_irregular,
+                               t_obs = t_obs_irreg, a = a, b = b)
+print(taux_H0_irreg)
+```
+
+
+```{r}
+# -------------------------------------------------------------------------
+# Cas H1 : processus gamma non homogène 
+# -------------------------------------------------------------------------
+set.seed(45)
+taux_H1_irreg <- MC_test_irreg(N = N, scenario = sim_NHGP_irregular,
+                               t_obs = t_obs_irreg, a = a, b = b, alpha = 1.5)
+print(taux_H1_irreg)
+```
+

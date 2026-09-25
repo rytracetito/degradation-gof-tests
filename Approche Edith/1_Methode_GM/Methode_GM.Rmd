@@ -1,0 +1,324 @@
+---
+title: 'Approche de Grall Maes : Implémentation'
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r, message=FALSE, warning=FALSE}
+rm(list = ls())
+source("pont_gamma_Grall_Maes.R")
+source("estimate_parametres.R")
+source("tests_adequation_loi_gamma.R")
+source("fonction_principale.R")
+source("simulate_rwa_gamma.R")
+source("scenarios.R")
+source("fonction_monte_carlo.R")
+```
+
+
+```{r}
+set.seed(47)
+
+t_reg <- seq(0, 50, by = 1)
+X_reg <- sim_HGP(t_obs = t_reg, a = 2, b = 1)
+```
+
+```{r}
+print(gof.gp(X_reg, "Henze"))
+```
+
+
+```{r}
+print(gof.gp(X_reg, "VGE"))
+```
+
+
+```{r}
+print(gof.gp(X_reg, "BET"))
+```
+
+
+```{r}
+print(gof.gp(X_reg, "KS"))
+```
+
+
+```{r}
+set.seed(47)
+t_obs <- c(0, sort(runif(50, 0, 10)))
+X_irr <- sim_IGP(t_obs = t_obs, mu = 2, lambda = 1)
+
+print(gof.gp(X_irr, "Henze"))
+print(gof.gp(X_irr, "VGE"))
+print(gof.gp(X_irr, "BET"))
+print(gof.gp(X_irr, "KS"))
+```
+
+
+
+
+```{r}
+
+library(ggplot2)
+
+set.seed(123)
+t_obs <- seq(0, 100, by = 1)
+
+data_HGP <- sim_HGP(t_obs = t_obs, a = 2, b = 5)
+data_NHGP <- sim_NHGP(t_obs = t_obs, a = 2, b = 5, alpha = 1.5)
+data_IGP <- sim_IGP(t_obs = t_obs, mu = 2, lambda = 1)
+
+data_all <- rbind(
+  data.frame(t = data_HGP$t,  X = data_HGP$X,  processus = "Gamma homogène (H0)"),
+  data.frame(t = data_NHGP$t, X = data_NHGP$X, processus = "Gamma non-homogène (H1)"),
+  data.frame(t = data_IGP$t,  X = data_IGP$X,  processus = "Gaussien Inverse (H1)")
+)
+
+ggplot(data_all, aes(x = t, y = X, color = processus)) +
+  geom_line(linewidth = 1) +
+  scale_color_manual(values = c(
+    "Gamma homogène (H0)"      = "blue",
+    "Gamma non-homogène (H1)"  = "red",
+    "Gaussien Inverse (H1)"    = "darkgreen"
+  )) +
+  labs(title = "Trajectoires sous H0 (Gamma homogène) et sous deux alternatives H1",
+       x = "Temps", y = "Dégradation", color = "Processus") +
+  theme_minimal()
+```
+
+# Points Observés  Vs Points Simulés
+
+```{r}
+# Données
+set.seed(42)
+N <- 10
+t_obs <- c(0, 1.2, 2, 3.8, 5.59, 7.1, 8, 10, 11.4, 12.93, 13, 15.3,17, 18.7, 21, 22.5)
+a_true <- 3.2
+b_true <- 0.8
+sim_mat <- simulate_gamma_rwa(times = t_obs, a = a_true, nsim = 1, b = b_true)
+x_obs <- sim_mat[, 1]
+
+bridge <- gamma_bridge(X = x_obs, t = t_obs, a = a_true)
+
+
+df_obs <- data.frame(t = t_obs, x = x_obs, type = "Points observés")
+t_reg <- seq(0, max(t_obs), by = bridge$teq)
+df_sim <- data.frame(t = t_reg, x = bridge$new_obs, type = "Points simulés")
+
+
+ggplot() +
+  geom_point(data = df_obs, aes(t, x, color = type), size = 2.5) +
+  geom_point(data = df_sim, aes(t, x, color = type), shape = 16, size = 2) +
+  scale_color_manual(values = c("Points observés" = "red", "Points simulés" = "blue")) +
+  labs(title = "Méthode de Grall-Maes : Points observés vs Points simulés",
+       x = "Temps", y = "X(t)") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.box.background = element_rect(fill = "white", color = "black"),
+        legend.title = element_blank())
+```
+
+
+# Étude du niveau et de la puissance des tests selon différents scénarios 
+
+## Cas 1 : Inspections régulières 
+
+```{r}
+# Paramètres  
+N <- 1000
+tmax <- 100
+a <- 2
+b <- 5
+set.seed(47)
+```
+
+## Niveau des tests 
+
+```{r}
+n_obs <-  100
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H0 <- MC_test(N = N, scenario = sim_HGP,
+                    t_obs = t_obs, a = a, b = b)
+print(taux_H0)
+```
+
+## Puissance des tests
+
+```{r}
+n_obs <- 10
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                    t_obs = t_obs, a = a, b = b, alpha = 1.5)
+print(taux_H1)
+```
+
+
+```{r}
+n_obs <- 20 
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                    t_obs = t_obs, a = a, b = b, alpha = 1.5)
+print(taux_H1)
+```
+
+```{r}
+n_obs <- 50
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                    t_obs = t_obs, a = a, b = b, alpha = 1.5)
+print(taux_H1)
+```
+
+```{r}
+n_obs <- 100
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                    t_obs = t_obs, a = a, b = b, alpha = 1.5)
+print(taux_H1)
+```
+
+```{r}
+n_obs <- 200
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                    t_obs = t_obs, a = a, b = b, alpha = 1.5)
+print(taux_H1)
+```
+
+
+## Cas 1 : Inspections irrégulières
+
+```{r}
+# ------------------------------------------------------------------------- 
+# Génération des temps d'observation irréguliers  
+# ------------------------------------------------------------------------- 
+t_obs_irreg <- sort(runif(n_obs, 0, tmax)) 
+stripchart(t_obs_irreg,  
+           method = "stack",    
+           pch = 19,           
+           col = "steelblue", 
+           main = "Répartition des temps d'inspection irréguliers", 
+           xlab = "Temps",  
+           ylab = "")
+```
+
+## Niveau des tests
+
+```{r}
+n_obs <-  100
+t_obs_irreg <- sort(runif(n_obs, 0, tmax)) 
+taux_H0 <- MC_test(N = N, scenario = sim_HGP,
+                    t_obs = t_obs, a = a, b = b)
+print(taux_H0) 
+```
+
+## Puissance des tests
+
+```{r}
+n_obs <- 10 
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                    t_obs = t_obs, a = a, b = b, alpha = 1.5)
+print(taux_H1)
+```
+
+
+```{r}
+n_obs <- 20
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                    t_obs = t_obs, a = a, b = b, alpha = 1.5)
+print(taux_H1) 
+```
+
+```{r}
+n_obs <- 50
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                    t_obs = t_obs, a = a, b = b, alpha = 1.5)
+print(taux_H1)
+```
+
+
+```{r}
+n_obs <- 100 
+t_obs <- seq(0, tmax, length.out = n_obs)
+
+taux_H1 <- MC_test(N = N, scenario = sim_NHGP,
+                    t_obs = t_obs, a = a, b = b, alpha = 1.5)
+print(taux_H1)
+```
+
+
+
+# Puissance sous une alternative inverse gamma
+
+```{r}
+library(future.apply)
+library(statmod)
+MC_test_IG <- function(N = 50, t_obs, mu = 2, lambda = 1,
+                        ncores = parallel::detectCores() - 1) {
+  
+  plan(multisession, workers = ncores)
+  
+  une_iter <- function(i, t_obs, mu, lambda) {
+    X <- sim_IGP(t_obs = t_obs, mu = mu, lambda = lambda)
+    
+    res_h <- gof.gp(X, "Henze")
+    rej_h <- as.integer(res_h$T.value > res_h$cv)
+    
+    res_v <- gof.gp(X, "VGE")
+    rej_v <- as.integer(res_v$p.value < 0.05)
+    
+    res_k <- gof.gp(X, "KS")
+    rej_k <- as.integer(res_k$T.value > res_k$cv)
+    
+    res_b <- gof.gp(X, "BET")
+    rej_b <- as.integer(res_b$T.value > res_b$cv)
+    
+    c(Henze = rej_h, VGE = rej_v, KS = rej_k, BET = rej_b)
+  }
+  
+  res <- future_sapply(1:N, une_iter,
+                        t_obs = t_obs, mu = mu, lambda = lambda,
+                        future.seed = TRUE)
+  taux <- rowMeans(res)
+  names(taux) <- c("Henze", "VGE", "KS", "BET")
+  return(taux)
+}
+```
+
+
+
+
+```{r}
+n_obs <- 50
+t_obs <- seq(0, tmax, length.out = n_obs)
+taux_H1_IG <- MC_test_IG(N = N, t_obs = t_obs, mu = 2, lambda = 3)
+print(taux_H1_IG)
+```
+```{r}
+n_obs <- 100
+t_obs <- seq(0, tmax, length.out = n_obs)
+taux_H1_IG <- MC_test_IG(N = N, t_obs = t_obs, mu = 2, lambda = 3)
+print(taux_H1_IG)
+```
+
+
+```{r}
+n_obs <- 150
+t_obs <- seq(0, tmax, length.out = n_obs)
+taux_H1_IG <- MC_test_IG(N = N, t_obs = t_obs, mu = 2, lambda = 3)
+print(taux_H1_IG)
+```
+

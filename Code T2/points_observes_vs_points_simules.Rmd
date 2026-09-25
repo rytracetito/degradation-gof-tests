@@ -1,0 +1,96 @@
+---
+title: "Méthode de Grall-Maes : points observés vs points simulés (pont gamma)"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+# Simuler un processus gamma par la méthode Random Walk Approximation (RWA)
+source("simulate_rwa_gamma.R")
+```
+
+
+# Approche de d'Edith
+```{r}
+gamma_bridge <- function(X, t, a) {
+  n <- length(X) - 1
+  t_n <- t[length(t)]
+  teq <- t_n / n
+  
+  t_star <- seq(0, t_n, teq)
+  
+  Y <- numeric(length(t_star))
+  Y[1] <- 0
+  
+  for (i in 2:n) {
+    inter <- max(t[t <= t_star[i]])
+    if (inter > t_star[i - 1]) {
+      t_inf <- inter
+      x_inf <- X[t == inter]
+    } else {
+      t_inf <- t_star[i - 1]
+      x_inf <- Y[i - 1]
+    }
+    t_sup <- min(t[t > t_star[i]])
+    x_sup <- X[t == t_sup]
+    y <- rbeta(1, a * (t_star[i] - t_inf), a * (t_sup - t_star[i]))
+    Y[i] <- x_inf + (x_sup - x_inf) * y
+  }
+  Y[n + 1] <- X[n + 1]
+  
+  list(teq = teq, new_obs = Y)
+}
+```
+
+
+# Simulation et comparaison graphique
+
+
+```{r}
+# Données
+set.seed(46)
+N <- 10
+t_obs <- c(0, 1.2, 2, 3.8, 5.5, 7.1, 10.4, 12.9, 15.3, 18.7, 22.5)
+a_true <- 3.2
+b_true <- 0.8
+sim_mat <- simulate_gamma_rwa(times = t_obs, a = a_true, nsim = 1, rate = b_true)
+x_obs <- sim_mat[, 1]
+
+
+bridge <- gamma_bridge(X = x_obs, t = t_obs, a = a_true)
+
+df_obs <- data.frame(t = t_obs, x = x_obs, type = "Points observés")
+t_reg <- seq(0, max(t_obs), by = bridge$teq)
+df_sim <- data.frame(t = t_reg, x = bridge$new_obs, type = "Points simulés")
+
+```
+
+
+```{r}
+head(df_obs)
+
+head(df_sim)
+```
+
+
+```{r}
+# Graphique
+library(ggplot2)
+ggplot() +
+  geom_point(data = df_obs, aes(t, x, color = type), size = 2.5) +
+  geom_point(data = df_sim, aes(t, x, color = type), shape = 16, size = 2) +
+  scale_color_manual(values = c("Points observés" = "red", "Points simulés" = "blue")) +
+  labs(title = "Méthode de Grall-Maes : Points observés vs Points simulés",
+       x = "Temps", y = "X(t)") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.box.background = element_rect(fill = "white", color = "black"),
+        legend.title = element_blank())
+```
+
+
+
+
+
+

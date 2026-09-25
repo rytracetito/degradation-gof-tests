@@ -1,0 +1,271 @@
+---
+title: "Comment simuler une trajectoire à des pas fixes (constant) sachant  les obsevations $(t_i , x_i)$ : Pont gamma"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+
+# Méthode 1 : Fonction `simulate_gamma_bridge_df`
+
+## Objectif
+
+Simuler un **pont de processus gamma** (*gamma bridge*) à partir de points observés.  
+Un pont gamma est un processus gamma conditionné pour passer par des points fixes aux instants observés, puis interpolé de manière probabiliste entre ces points.
+
+***
+
+## Principe
+- On dispose d’un vecteur de **temps observés** \(t_0 < t_1 < \dots < t_N\) et des **valeurs correspondantes** \(x_0, x_1, \dots, x_N\).  
+- On souhaite construire une trajectoire continue approximative \(X(t)\) passant exactement par ces points observés.  
+- Les valeurs intermédiaires sont générées selon la **distribution Beta conditionnelle**, ce qui est la caractéristique d’un pont gamma :  
+
+\[
+\frac{X(t)-x_0}{x_1-x_0} \sim \text{Beta}(A(t)-A(t_0), \, A(t_1)-A(t))
+\]
+
+où \(A(t)\) est une fonction strictement croissante qui contrôle l’échelle du processus.
+
+***
+
+## Paramètres
+| Paramètre | Description |
+|-----------|-------------|
+| `X` | `data.frame` contenant les colonnes `t_obs` (temps) et `x_obs` (valeurs observées) |
+| `delta` | Pas de la grille fine pour l’interpolation (défaut `0.1`) |
+| `A` | Fonction strictement croissante \(A(t)\) pour calculer les paramètres Beta |
+
+***
+
+## Fonctionnement
+1. **Vérification des entrées** :  
+   - `X` doit contenir `t_obs` et `x_obs`  
+   - `A` doit être une fonction strictement croissante
+2. **Création d’une grille fine** `t_fine` allant du premier au dernier temps observé avec pas `delta`.  
+3. **Boucle sur chaque intervalle** `[t_i, t_{i+1}]` :  
+   - Fixe les **extrémités** du pont : \(X(t_i) = x_i\), \(X(t_{i+1}) = x_{i+1}\)  
+   - Pour chaque **point intermédiaire** :  
+     - Calcule les paramètres Beta :  
+       \(\alpha = A(t) - A(t_i), \quad \beta = A(t_{i+1}) - A(t)\)  
+     - Tire \(u \sim \text{Beta}(\alpha, \beta)\)  
+     - Transforme pour obtenir \(X(t) = x_i + (x_{i+1}-x_i) \cdot u\)  
+4. Répète pour tous les intervalles `[t_i, t_{i+1}]` afin de construire la trajectoire complète.
+
+***
+
+## Sortie
+- Un `data.frame` avec :  
+  - `t` : vecteur de temps de la grille fine  
+  - `X` : trajectoire simulée du pont gamma passant par les observations et interpolée entre elles  
+- La trajectoire respecte la condition de **passage exact par les points observés** et les propriétés probabilistes du pont gamma entre les points.
+
+***
+
+## Remarque
+- Cette méthode fournit une **approximation discrète** d’un pont gamma continu.  
+- La distribution Beta conditionnelle garantit que chaque segment `[x_i, x_{i+1}]` est correctement pondéré selon la fonction `A(t)`.  
+
+
+```{r}
+
+simulate_gamma_bridge_df <- function(X, delta = 0.1, A) {
+  
+  # Vérifications
+  if (!all(c("t_obs", "x_obs") %in% colnames(X))) {
+    stop("Le data.frame X doit contenir les colonnes 't_obs' et 'x_obs'")
+  }
+  if (!is.function(A)) stop("A doit être une fonction strictement croissante")
+  
+  t_obs <- X$t_obs
+  x_obs <- X$x_obs
+  
+  # Grille fine régulière
+  t_fine <- seq(min(t_obs), max(t_obs), by = delta)
+  X_fine <- numeric(length(t_fine))
+  
+  # Boucle sur chaque intervalle [ti, ti+1]
+  for (i in 1:(length(t_obs)-1)) {
+    
+    t0 <- t_obs[i]; t1 <- t_obs[i+1]
+    x0 <- x_obs[i]; x1 <- x_obs[i+1]
+    
+    # indices de la grille fine pour l'intervalle
+    idx <- which(t_fine >= t0 & t_fine <= t1)
+    idx0 <- idx[1]; idx1 <- idx[length(idx)]
+    
+    # Forcer les extrémités
+    X_fine[idx0] <- x0
+    X_fine[idx1] <- x1
+    
+    if (length(idx) > 2) {
+      # Points intermédiaires
+      t_intern <- t_fine[idx[-c(1,length(idx))]]
+      
+      for (j in seq_along(t_intern)) {
+        t <- t_intern[j]
+        alpha <- A(t) - A(t0)
+        beta  <- A(t1) - A(t)
+        
+        # Tirage Beta conditionnel
+        u <- rbeta(1, alpha, beta)
+        X_fine[idx[j+1]] <- x0 + (x1 - x0) * u
+      }
+    }
+  }
+  
+  return(data.frame(t = t_fine, X = X_fine))
+}
+```
+
+# Application 
+
+```{r}
+# Points observés
+X_obs <- data.frame(
+  t_obs = c(0, 2, 5, 7, 9),
+  x_obs = c(0, 1, 2, 3, 4.5)
+)
+
+# Fonction de forme 
+A <- function(t){
+  3*t
+}  
+
+# Simulation avec pas delta = 0.5
+result <- simulate_gamma_bridge_df(X_obs, delta = 0.5, A = A)
+
+# Visualisation
+library(ggplot2)
+ggplot(result, aes(x = t, y = X)) +
+  geom_line(color = "grey", size = 1) +
+  geom_point(data = X_obs, aes(x = t_obs, y = x_obs), color = "red", size = 3) +
+  labs(title = "Pont gamma à pas fixe",
+       x = "t", y = "X(t)") +
+  theme_minimal()
+```
+
+
+
+# Méthode 2 :  Pont gamma par Dirichlet (génération en bloc)
+
+## Objectif: 
+
+Présenter la distribution de Dirichlet comme généralisation du pont gamma pour interpoler plusieurs points intermédiaires en une seule étape, et illustrer son utilisation dans la simulation de trajectoires gamma conditionnées à des observations.
+
+
+**Propriété mathématique** :  
+La distribution de Dirichlet intervient naturellement quand on généralise le pont gamma à plusieurs points intermédiaires entre deux observations.
+
+Rappelons le principe du pont gamma sur un intervalle \([t_A, t_B]\) avec \(X(t_A) = x_A\) et \(X(t_B) = x_B\).
+
+Les incréments \(Z_1 = X(t) - X(t_A)\) et \(Z_2 = X(t_B) - X(t)\) sont indépendants et suivent des lois gamma de paramètres \((a(t - t_A), b)\) et \((a(t_B - t), b)\).
+
+Le rapport \(Y = Z_1 / (Z_1 + Z_2)\) suit une loi **bêta** de paramètres \((a(t - t_A), a(t_B - t))\).
+
+Si maintenant on découpe l’intervalle en \(k\) sous-intervalles \(t_A = s_0 < s_1 < \dots < s_k = t_B\), les incréments \(Z_j = X(s_j) - X(s_{j-1})\) sont des variables gamma indépendantes de paramètres \((a\Delta s_j, b)\).
+
+Le vecteur des proportions normalisées
+
+\[
+\left( \frac{Z_1}{\sum Z_j}, \dots, \frac{Z_k}{\sum Z_j} \right)
+\]
+
+suit une distribution de **Dirichlet** de paramètres \((a\Delta s_1, \dots, a\Delta s_k)\).
+
+Ainsi, la Dirichlet est la généralisation multidimensionnelle de la loi bêta pour le pont gamma lorsque l’on souhaite interpoler plusieurs points intermédiaires en une seule étape. C’est ce qui sous-tend la construction d’une trajectoire gamma conditionnée à plusieurs observations (comme dans la fonction `simulate_gamma_bridge_df` qui, pour chaque intervalle, traite un point intermédiaire à la fois, mais on pourrait tout générer d’un coup avec une Dirichlet).
+
+**Principe** :  
+- On dispose de **points observés fixes** \((t_i, x_i)\).  
+- On souhaite construire une trajectoire continue qui **passe exactement** par ces points.  
+- Pour chaque intervalle \([t_i, t_{i+1}]\), on utilise la propriété que le vecteur des incréments normalisés suit une loi de **Dirichlet** de paramètres proportionnels aux longueurs des sous‑intervalles.  
+- Ainsi, on génère **tous les points intermédiaires d’un seul tirage** (au lieu de tirages bêta séquentiels).  
+
+**Grille** : Régulière, définie par un pas \(\delta\) (paramètre `delta`).
+
+## Utilisation pratique
+
+Pour générer une trajectoire **passant exactement** par les points observés \((t_i, x_i)\), on peut, pour chaque intervalle \([t_i, t_{i+1}]\) :
+
+1. Choisir une grille fine \(t_{i,1}, \ldots, t_{i,m}\) à l’intérieur.
+2. Calculer les écarts \(\Delta s_j\).
+3. Tirer un vecteur \(Y \sim \text{Dirichlet}(a\Delta s_1, \dots, a\Delta s_{m+1})\).
+4. Poser \(D = x_{i+1} - x_i\).
+5. Les incréments sont \(Z_j = D \cdot Y_j\).
+6. Enfin,
+   \[
+   X(t_{i,j}) = x_i + \sum_{k=1}^j Z_k.
+   \]
+
+
+
+
+
+```{r}
+library(gtools)
+
+gamma_bridge_dirichlet <- function(t_obs, x_obs, a, delta = 0.1) {
+  
+  if (any(diff(t_obs) <= 0)) stop("t_obs doit être strictement croissant")
+  if (any(diff(x_obs) < 0)) stop("x_obs doit être croissant")
+  
+  t_fine <- sort(unique(c(seq(min(t_obs), max(t_obs), by = delta), t_obs)))
+  X_fine <- numeric(length(t_fine))
+  
+  for (i in seq_along(t_obs)[-length(t_obs)]) {
+    t0 <- t_obs[i]; t1 <- t_obs[i+1]
+    x0 <- x_obs[i]; x1 <- x_obs[i+1]
+    
+    idx <- which(t_fine >= t0 & t_fine <= t1)
+    idx0 <- idx[1]; idx1 <- idx[length(idx)]
+    
+    X_fine[idx0] <- x0
+    X_fine[idx1] <- x1
+    
+    if (length(idx) > 2) {
+      t_intern <- t_fine[idx[-c(1, length(idx))]]
+      
+      deltas <- diff(c(t0, t_intern, t1))
+      alpha <- pmax(a * deltas, 1e-12)
+      
+      prop <- rdirichlet(1, alpha)
+      incr <- (x1 - x0) * prop
+      
+      cum_incr <- cumsum(incr)
+      X_fine[idx[-c(1, length(idx))]] <- x0 + cum_incr[-length(cum_incr)]
+    }
+  }
+  
+  return(data.frame(t = t_fine, X = X_fine))
+}
+```
+
+
+
+```{r}
+set.seed(123)
+
+# Données observées
+
+  t_obs = c(0, 2, 5, 7, 9)
+  x_obs = c(0, 1, 2, 3, 4.5)
+
+# Paramètre du processus gamma
+a <- 2
+
+# Simulation du pont
+
+sim <- gamma_bridge_dirichlet(t_obs, x_obs, a, delta = 0.01)
+
+# Visualisation
+plot(sim$t, sim$X, type = "l", col = "blue", lwd = 2,
+     main = "Simulation d'un pont de processus gamma",
+     xlab = "Temps", ylab = "X(t)")
+
+# Points observés
+points(t_obs, x_obs, col = "red", pch = 19, cex = 1.5)
+
+# Grille
+grid()
+
+```
+

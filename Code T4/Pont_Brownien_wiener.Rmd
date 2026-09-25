@@ -1,0 +1,274 @@
+---
+title: "Simulation séquentielle d’un pont Wiener avec dérive"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+# Chargement des fonctions nécessaires
+source("Construit_grille_wiener.R")
+source("estimate_parametres.R")
+```
+
+# Ma démarche 
+
+- Définir les temps d'observation (t_obs)
+- Simuler des observations avec simulate_wiener_rwa : Marche aléatoitre
+- Estimer $\mu$ et $\sigma$ 
+- Simuler le pont avec simulate_wiener_bridge
+
+
+#  Simulation séquentielle d’un pont Brownien 
+
+##  Fonction `simulate_wiener_bridge` 
+
+```{r}
+# Pont brownien pour le processus de Wiener
+#
+# t_obs Vecteur des temps d'observation
+# x_obs Vecteur des valeurs observées
+# mu Paramètre de dérive
+# sigma Paramètre de volatilité (sigma > 0)
+#  digits Nombre de décimales pour les temps décimaux
+# Liste contenant t_fine, X_fine, idx_obs, grille
+
+simulate_wiener_bridge <- function(X, digits = 3) {
+  
+  t_obs <- X[, 1]
+  x_obs <- X[, 2]
+  
+  if (length(t_obs) != length(x_obs)) {
+    stop("t_obs et x_obs doivent avoir la même longueur.")
+  }
+  if (length(t_obs) < 2) {
+    stop("Il faut au moins 2 observations.")
+  }
+  
+  params <- estimer_wiener(t_obs, x_obs)
+  sigma <- params["sigma"]
+  
+  grille <- construire_grille_dec(t_obs, digits)
+  
+  t_fine <- grille$t_fine
+  idx_obs <- grille$idx_obs
+  n_fine <- grille$n_fine
+  n_obs <- grille$n_obs
+  
+  X_fine <- numeric(n_fine)
+  X_fine[idx_obs] <- x_obs
+  
+  for (i in 1:(n_obs - 1)) {
+    idx_start <- idx_obs[i]
+    idx_end <- idx_obs[i + 1]
+    
+    t_start <- t_fine[idx_start]
+    t_end <- t_fine[idx_end]
+    
+    x_start <- x_obs[i]
+    x_end <- x_obs[i + 1]
+    
+    K <- idx_end - idx_start
+    
+    if (K >= 2) {
+      delta_i <- (t_end - t_start) / K
+      
+      X_current <- x_start
+      
+      for (k in 0:(K - 2)) {
+        s_k <- t_start + k * delta_i
+        s_kp1 <- s_k + delta_i
+        
+        mean_cond <- X_current + (delta_i / (t_end - s_k)) * (x_end - X_current)
+        var_cond <- sigma^2 * delta_i * (t_end - s_kp1) / (t_end - s_k)
+        
+        X_next <- rnorm(1, mean = mean_cond, sd = sqrt(var_cond))
+        
+        X_fine[idx_start + k + 1] <- X_next
+        X_current <- X_next
+      }
+    }
+    
+    X_fine[idx_end] <- x_end
+  }
+  
+  return(list(
+    t_fine = t_fine,
+    X_fine = X_fine,
+    idx_obs = idx_obs,
+    grille = grille,
+    sigma_estime = sigma
+  ))
+}
+```
+
+## Application  1 : Inspection régulières
+
+```{r}
+library(ggplot2)
+set.seed(46)
+
+t_obs <- seq(0, 10, length.out = 50) 
+
+vrais_mu <- 2
+vrais_sigma <- 1
+
+obs <- simulate_wiener_rwa(
+  times = t_obs,
+  mu = vrais_mu,
+  sigma = vrais_sigma,
+  nsim = 1
+)
+
+x_obs <- as.vector(obs)
+t_obs <- as.numeric(rownames(obs))
+
+print(head(data.frame(t = t_obs, X = x_obs)))
+
+estimation <- estimate_params(t_obs, x_obs)
+
+cat("Paramètres :\n")
+cat("  Vrais : mu =", vrais_mu, ", sigma =", vrais_sigma, "\n")
+cat("  Estimés : mu =", estimation$a_hat, ", sigma =", estimation$sigma_hat, "\n")
+
+X <- cbind(t_obs, x_obs)
+
+resultat <- simulate_wiener_bridge(X = X, digits = 3)
+
+df_traj <- data.frame(t = resultat$t_fine, X = resultat$X_fine)
+df_obs <- data.frame(t = t_obs, X = x_obs)
+
+ggplot() +
+  geom_line(data = df_traj, aes(x = t, y = X), color = "blue", linewidth = 1) +
+  geom_point(data = df_obs, aes(x = t, y = X), color = "red", size = 2) +
+  labs(
+    title = "Pont brownien - Processus de Wiener avec derive",
+    subtitle = paste0("sigma estime = ", round(resultat$sigma_estime, 3)),
+    x = "Temps t", y = "X(t)"
+  ) +
+  theme_minimal()
+```
+
+## Application  2 : Inspection irrégulières
+
+
+
+```{r}
+
+set.seed(46)
+
+t_obs_irreg <- c(0, 1.2, 2.5, 4, 5.8, 7.333, 8.9, 10)
+
+vrais_mu <- 2
+vrais_sigma <- 3
+
+obs <- simulate_wiener_rwa(
+  times = t_obs_irreg,
+  mu = vrais_mu,
+  sigma = vrais_sigma,
+  nsim = 1
+)
+
+x_obs <- as.vector(obs)
+t_obs <- as.numeric(rownames(obs))
+
+print(data.frame(t = t_obs, X = x_obs))
+
+
+estimation <- estimate_params(t_obs, x_obs)
+
+cat("Paramètres :")
+cat("  Vrais : mu =", vrais_mu, ", sigma =", vrais_sigma, "")
+cat("  Estimés : mu =", estimation$a_hat, ", sigma =", estimation$sigma_hat, "")
+
+resultat <- simulate_wiener_bridge(
+  t_obs = t_obs,
+  x_obs = x_obs,
+  a = estimation$a_hat, # ou vrais_mu
+  sigma = estimation$sigma_hat, # vrais_sigma
+  rho = 10,
+  digits = 3
+)
+
+df_traj <- data.frame(t = resultat$t_fine, X = resultat$X_fine)
+df_obs <- data.frame(t = t_obs, X = x_obs)
+
+ggplot() +
+  geom_line(data = df_traj, aes(x = t, y = X), color = "blue", linewidth = 1) +
+ # geom_point(data = df_obs, aes(x = t, y = X), color = "red", size = 3) +
+  labs(
+    title = "Pont brownien - Processus de Wiener avec dérive",
+    x = "Temps t", y = "X(t)"
+  ) +
+  theme_minimal()
+```
+
+## Application  3 : Inspection irrégulières
+
+```{r}
+set.seed(124)
+
+t_obs_irreg <- c(0, sort(runif(49, 0, 10)))
+stripchart(t_obs_irreg, 
+           main = "Distribution des temps d'observation", 
+           xlab = "Temps", 
+           method = "stack",   
+           pch = 19,           
+           col = "steelblue")
+
+```
+
+
+
+```{r}
+library(ggplot2)
+set.seed(124)
+
+t_obs_irreg <- c(0, sort(runif(49, 0, 10)))
+
+vrais_mu <- 2
+vrais_sigma <- 3
+
+obs <- simulate_wiener_rwa(
+  times = t_obs_irreg,
+  mu = vrais_mu,
+  sigma = vrais_sigma,
+  nsim = 1
+)
+
+x_obs <- as.vector(obs)
+t_obs <- as.numeric(rownames(obs))
+data = data.frame(t = t_obs, X = x_obs)
+print(head(data))
+
+
+# Estimation des paramètres
+
+estimation <- estimate_params(t_obs, x_obs)
+
+cat("Paramètres :")
+cat("  Vrais : mu =", vrais_mu, ", sigma =", vrais_sigma, "")
+cat("  Estimés : mu =", estimation$a_hat, ", sigma =", estimation$sigma_hat, "")
+
+resultat <- simulate_wiener_bridge(
+  t_obs = t_obs,
+  x_obs = x_obs,
+  a = estimation$a_hat, # ou vrais_mu
+  sigma = estimation$sigma_hat, # vrais_sigma
+  rho = 10,
+  digits = 3
+)
+
+df_traj <- data.frame(t = resultat$t_fine, X = resultat$X_fine)
+df_obs <- data.frame(t = t_obs, X = x_obs)
+
+ggplot() +
+  geom_line(data = df_traj, aes(x = t, y = X), color = "blue", linewidth = 1) +
+  geom_point(data = df_obs, aes(x = t, y = X), color = "red", size = 3) +
+  labs(
+    title = "Pont brownien - Processus de Wiener avec dérive",
+    x = "Temps t", y = "X(t)"
+  ) +
+  theme_minimal()
+```
+

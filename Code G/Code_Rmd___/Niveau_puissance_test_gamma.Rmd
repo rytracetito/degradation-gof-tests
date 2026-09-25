@@ -1,0 +1,178 @@
+---
+title: "Puissance et niveau des tests d'adéqutaion aux tests d'adéquation à la loi gamma i.i.d"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+
+
+```{r}
+# x : vecteur d'observations i.i.d. (données positives)
+# B : nombre de réplications bootstrap
+
+# ----------------------------------------------------------------------
+# Estimation des paramètres (Villaseñor‑González)
+# ----------------------------------------------------------------------
+estimer_params_VG <- function(x) {
+  m <- mean(x)  
+  log_x <- log(x)
+  ml <- mean(log_x)
+  b_hat <- mean((x - m) * (log_x - ml))
+  if (b_hat <= 0) b_hat <- 1e-6
+  a_hat <- m / b_hat
+  if (a_hat <= 0) a_hat <- 1e-6
+  c(shape = a_hat, rate = 1 / b_hat)
+}
+
+# ----------------------------------------------------------------------
+# Test de Henze 
+# ----------------------------------------------------------------------
+gof.henze <- function(x, B = 50) {
+  if (!requireNamespace("gofgamma", quietly = TRUE))
+    install.packages("gofgamma")
+  library(gofgamma)
+  test.HME1(x, a = 1, boot = B, alpha = 0.05)
+}
+
+# ----------------------------------------------------------------------
+# Test VGE 
+# ----------------------------------------------------------------------
+gof.vge <- function(x, B = 50) {
+  if (!requireNamespace("goft", quietly = TRUE))
+    install.packages("goft")
+  library(goft)
+  params <- estimer_params_VG(x)
+  shape <- params["shape"]
+  rate  <- params["rate"]
+  T_obs <- abs(suppressWarnings(gamma_test(x)$statistic))
+  T_boot <- replicate(B, {
+    x_star <- rgamma(length(x), shape = shape, rate = rate)
+    tryCatch(abs(suppressWarnings(gamma_test(x_star)$statistic)),
+             error = function(e) NA)
+  })
+  p_val <- mean(T_boot >= T_obs, na.rm = TRUE)
+  list(statistic = T_obs, p.value = p_val, method = "Bootstrap VGE (VG)")
+}
+
+# ----------------------------------------------------------------------
+# Test KS 
+# ----------------------------------------------------------------------
+gof.ks <- function(x, B = 50) {
+  params <- estimer_params_VG(x)
+  shape <- params["shape"]
+  rate  <- params["rate"]
+  D_obs <- suppressWarnings(
+    ks.test(x, "pgamma", shape = shape, rate = rate)$statistic
+  )
+  D_boot <- replicate(B, {
+    x_star <- rgamma(length(x), shape = shape, rate = rate)
+    tryCatch({
+      p_star <- estimer_params_VG(x_star)
+      ks.test(x_star, "pgamma", shape = p_star["shape"], rate = p_star["rate"])$statistic
+    }, error = function(e) NA)
+  })
+  p_val <- mean(D_boot >= D_obs, na.rm = TRUE)
+  structure(list(statistic = D_obs, p.value = p_val,
+                 method = "KS with parametric bootstrap (VG)",
+                 data.name = deparse(substitute(x))), class = "htest")
+}
+
+# ----------------------------------------------------------------------
+# Test de Betsch & Ebner 
+# ----------------------------------------------------------------------
+gof.betsch <- function(x, B = 50) {
+  if (!requireNamespace("gofgamma", quietly = TRUE))
+    install.packages("gofgamma")
+  library(gofgamma)
+  test.BE(x, boot = B)
+}
+
+# ----------------------------------------------------------------------
+# Fonction principale : gof.gamma.iid
+# ----------------------------------------------------------------------
+gof.gamma.iid <- function(x, test) {
+  switch(test,
+         Henze = gof.henze(x),
+         VGE   = gof.vge(x),
+         KS    = gof.ks(x),
+         BET   = gof.betsch(x),
+         stop("Test inconnu. Choisir parmi 'Henze', 'VGE', 'KS', 'BET'"))
+}
+```
+
+
+# Niveau et puissance des tests  
+
+```{r}
+MC_test <- function(n, R, alpha, rgen) {
+  # n     : taille de chaque échantillon
+  # R     : nombre de répétitions
+  # alpha : seuil de signification
+  # rgen  : fonction générant un échantillon de taille n
+  # Retourne un vecteur nommé des taux de rejet pour les quatre tests
+  
+  tests <- c("Henze", "VGE", "KS", "BET")
+  rejet <- setNames(rep(0, length(tests)), tests)
+  
+  for (i in 1:R) {
+    x <- rgen(n)
+    for (t in tests) {
+      res <- gof.gamma.iid(x, t)
+      if (t %in% c("Henze", "BET")) {
+        if (res$Decision) rejet[t] <- rejet[t] + 1
+      } else {
+        if (res$p.value < alpha) rejet[t] <- rejet[t] + 1
+      }
+    }
+  }
+  rejet / R
+}
+```
+
+
+# Niveau des tests (H0 vraie)
+
+```{r}
+# Sous H0 : loi gamma(2,1)
+rgen_gamma <- function(n) rgamma(n, shape = 2, rate = 1)
+niveau <- MC_test(n = 100, R = 500, alpha = 0.05, rgen = rgen_gamma)
+print(niveau)
+
+```
+
+
+# Puissance sous une alternative (loi log‑normale)
+
+```{r}
+# Sous H1 : loi log‑normale
+rgen_lnorm <- function(n) rlnorm(n, meanlog = 0, sdlog = 0.5)
+puissance_lnorm <- MC_test(n = 100, R = 200, alpha = 0.05, rgen = rgen_lnorm)
+print(puissance_lnorm)
+```
+
+# Puissance sous une alternative (loi de Weibull)
+
+```{r}
+# Sous H1 : loi de Weibull 
+rgen_weibull <- function(n) rweibull(n, shape = 2, scale = 1)
+puissance_weibull <- MC_test(n = 100, R = 200, alpha = 0.05, rgen = rgen_weibull)
+print(puissance_weibull)
+
+```
+
+# Puissance sous une alternative (loi Normale)
+
+```{r}
+rgen_normale <- function(n, mu = 5, sigma = 1) {
+  # Vérification que la condition est satisfaite
+  if (mu - 4 * sigma^2 <= 0) stop("mu - 4*sigma^2 doit être > 0")
+  rnorm(n, mean = mu, sd = sigma)
+}
+
+puissance_normale <- MC_test(100, R = 500, alpha = 0.05, function(n) rgen_normale(n, 5, 1))
+
+print(puissance_normale)
+
+```
+

@@ -1,0 +1,379 @@
+---
+title: "Utilisation du test de KS pour le processus gamma (Grall- Maes 12)"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+
+
+# cas régulier (Observation avec inspections périodiques)
+
+```{r}
+set.seed(123)
+# Cas 1 : Test d'adéquation à une loi entièrement spécifiée ie paramètres connus
+
+library(goftest)  # Pour ad.test et cvm.test
+
+test_cas1 <- function(x, a_ref, b_ref, dt_eq = 1) {
+  
+  # Distribution théorique complètement spécifiée
+  pdist <- function(q) pgamma(q, shape = a_ref * dt_eq, rate = b_ref)
+  
+  
+  ks <- ks.test(x, pdist)
+  ad <- ad.test(x, pdist)
+  cvm <- cvm.test(x, pdist)
+  
+  return(list(
+    ks_pval = ks$p.value,
+    ad_pval = ad$p.value,
+    cvm_pval = cvm$p.value,
+    ks_stat = ks$statistic,
+    ad_stat = ad$statistic,
+    cvm_stat = cvm$statistic
+  ))
+}
+```
+
+
+```{r}
+# Cas 2 : Test d'adéquation à une famille de lois (paramètres estimés)
+
+library(fitdistrplus)
+
+test_cas2 <- function(x) {
+  
+  # Ajustement d'une loi gamma par maximum de vraisemblance
+  fit <- fitdist(x, "gamma", method = "mle")
+  
+  # Tests d'adéquation (avec paramètres estimés)
+  gof <- gofstat(fit)
+  
+  return(list(
+    ks_pval = gof$ks,
+    ad_pval = gof$ad,
+    cvm_pval = gof$cvm,
+    a_estime = fit$estimate["shape"],
+    b_estime = fit$estimate["rate"],
+    fit = fit
+  ))
+}
+
+```
+
+
+```{r}
+# Application 
+# Génération des données 
+
+a_test <- 2; b_test <- 1; N <- 80; dt_eq <- 1
+
+t <- seq(0, N * dt_eq, by = dt_eq)
+x <- numeric(length(t))
+for (i in 2:length(t)) {
+  x[i] <- x[i-1] + rgamma(1, shape = a_test * dt_eq, rate = b_test)
+}
+dx <- diff(x)
+
+# Cas 1 : Avec paramètres connus
+resultat_cas1 <- test_cas1(dx, a_ref = 2, b_ref = 1, dt_eq = 1)
+print(resultat_cas1)
+
+# Cas 2 : Avec paramètres estimés
+resultat_cas2 <- test_cas2(dx)
+print(resultat_cas2)
+
+```
+
+
+## Conclusion
+
+Avec $p > 0.05$ pour les trois tests (KS, AD et CvM), on **ne rejette pas $H_0$**.  
+
+En termes de **puissance**, le test d'Anderson-Darling (AD) est généralement plus sensible que ceux de Kolmogorov-Smirnov (KS) et de Cramer-von Mises (CvM), notamment pour détecter des écarts dans les queues de distribution. Sous $H_0$, les trois tests présentent un comportement comparable et respectent bien le niveau nominal $\alpha = 0.05$.
+
+# Cas irrégulier (Processus Observés avec inspections apériodiques)
+
+```{r}
+# Gamma Bridge (Pont Gamma)
+
+gamma_bridge <- function(t, x, a, dt_eq) {
+  
+  if(any(diff(t) <= 0)) stop("Les temps doivent être strictement croissants")
+  
+  Np <- floor(max(t) / dt_eq)
+  t_eq <- seq(dt_eq, Np * dt_eq, by = dt_eq)
+  x_eq <- numeric(Np)
+  
+  for (i in 1:Np) {
+    
+    ti <- t_eq[i]
+    
+    sup_i <- which(t >= ti)[1]
+    t_sup <- t[sup_i]
+    x_sup <- x[sup_i]
+    
+    if (sup_i == 1) {
+      t_inf <- 0
+      x_inf <- 0
+    } else {
+      t_inf_candidate <- t[sup_i - 1]
+      
+      if (t_inf_candidate > (i - 1) * dt_eq) {
+        t_inf <- t_inf_candidate
+        x_inf <- x[sup_i - 1]
+      } else {
+        t_inf <- (i - 1) * dt_eq
+        x_inf <- if (i > 1) x_eq[i - 1] else 0
+      }
+    }
+    
+    alpha1 <- a * (ti - t_inf)
+    alpha2 <- a * (t_sup - ti)
+    
+    # Sécurité numérique
+    if (alpha1 <= 0 | alpha2 <= 0) {
+      y <- 0
+    } else {
+      y <- rbeta(1, alpha1, alpha2)
+    }
+    
+    x_eq[i] <- x_inf + (x_sup - x_inf) * y
+  }
+  
+  return(data.frame(time = t_eq, value = x_eq))
+}
+
+```
+
+
+```{r}
+# Fonction de tri
+
+tri_sample <- function(dt, dx, dt_eq) {
+  
+  N <- length(dt)
+  
+  dt_c <- dt
+  dx_c <- dx
+  
+  dt_s <- numeric(N)
+  dx_s <- numeric(N)
+  
+  max_i <- which.max(dt_c)
+  dt_s[1] <- dt_c[max_i]
+  dx_s[1] <- dx_c[max_i]
+  
+  dt_c <- dt_c[-max_i]
+  dx_c <- dx_c[-max_i]
+  
+  for (i in 2:N) {
+    
+    cum_time <- sum(dt_s[1:(i - 1)])
+    diffs <- (cum_time + dt_c) - i * dt_eq
+    
+    valid <- which(diffs >= 0)
+    
+    if (length(valid) > 0) {
+      choix <- valid[which.min(diffs[valid])]
+    } else {
+      choix <- which.max(diffs)
+    }
+    
+    dt_s[i] <- dt_c[choix]
+    dx_s[i] <- dx_c[choix]
+    
+    dt_c <- dt_c[-choix]
+    dx_c <- dx_c[-choix]
+  }
+  
+  return(list(dt = dt_s, dx = dx_s))
+}
+```
+
+# Estimation du paramètre a :  Méthode des moments
+
+
+```{r}
+estimer_a <- function(t, x) {
+  
+  dt <- diff(t)
+  dx <- diff(x)
+  
+  m_hat <- sum(dx) / sum(dt)
+  n_hat <- sum((dx - m_hat * dt)^2) /
+           (sum(dt) - sum(dt^2) / sum(dt))
+  
+  return(m_hat^2 / n_hat)
+}
+```
+
+
+## Test Ks : Echantillon irrégulier ( Un échantillon) 
+
+```{r}
+#install.packages("goftest")
+library(goftest)
+library(fitdistrplus)
+
+test_irregulier<- function(t, x, a_ref, b_ref, dt_eq, cas = 1) {
+  
+  # Tri
+  dt <- diff(t)
+  dx <- diff(x)
+  
+  tri <- tri_sample(dt, dx, dt_eq)
+  
+  t_tri <- c(0, cumsum(tri$dt))
+  x_tri <- c(0, cumsum(tri$dx))
+  
+  # Gamma bridge avec a_ref
+  interp <- gamma_bridge(t_tri, x_tri, a_ref, dt_eq)
+  dx_eq <- diff(c(0, interp$value))
+  
+  if (cas == 1) {
+    # CAS 1 : Loi entièrement spécifiée (paramètres connus)
+    pdist <- function(q) pgamma(q, shape = a_ref * dt_eq, rate = b_ref)
+    
+    ks <- ks.test(dx_eq, pdist)
+    ad <- ad.test(dx_eq, pdist)
+    cvm <- cvm.test(dx_eq, pdist)
+    
+    return(list(
+      ks_pval = ks$p.value,
+      ad_pval = ad$p.value,
+      cvm_pval = cvm$p.value,
+      ks_stat = ks$statistic,
+      ad_stat = ad$statistic,
+      cvm_stat = cvm$statistic
+    ))
+    
+  } else {
+    # CAS 2 : Famille de lois (paramètres estimés)
+    fit <- fitdist(dx_eq, "gamma", method = "mle")
+    gof <- gofstat(fit)
+    
+    return(list(
+      ks_pval = gof$ks,
+      ad_pval = gof$ad,
+      cvm_pval = gof$cvm,
+      a_estime = fit$estimate["shape"],
+      b_estime = fit$estimate["rate"]
+    ))
+  }
+}
+
+```
+
+```{r}
+
+
+# Génération des données irrégulières
+N <- 50
+dt_eq <- 1
+t <- sort(runif(N, 0, N * dt_eq))
+t <- c(0, t)
+
+x <- numeric(length(t))
+for(i in 2:length(t)){
+  x[i] <- x[i-1] + rgamma(1, shape = 2*(t[i]-t[i-1]), rate = 1)
+}
+
+# CAS 1 : avec paramètres connus
+resultat_cas1 <- test_irregulier(t, x, 
+                                            a_ref = 2, b_ref = 1, 
+                                            dt_eq = 1, cas = 1)
+print(resultat_cas1)
+
+# CAS 2 : avec estimation des paramètres
+resultat_cas2 <- test_irregulier(t, x, 
+                                            a_ref = 2, b_ref = 1, 
+                                            dt_eq = 1, cas = 2)
+print(resultat_cas2)
+```
+
+
+## Test Ks : Cas 2 échantillon 
+
+$H_0$ : \text{Les deux processus gamma suivent la même loi}  \text{(mêmes paramètres de forme et d'échelle)} \\ ie. $H_0 : F_1 = F_2$
+
+$H_1$ : \text{Les deux processus gamma suivent des lois différentes}\\ ie. $H_1 : F_1 \neq F_2$ 
+
+où $F_1$ la fonction de répartition des incréments du processus 1  
+et $F_2$ celle des incréments du processus 2.
+
+
+```{r}
+
+test_ks_deux_echantillons<- function(t1, x1, t2, x2) {
+  
+  T1 <- max(t1); T2 <- max(t2)
+  N1 <- length(t1) - 1; N2 <- length(t2) - 1
+  dt_eq <- (T1 + T2) / (N1 + N2)
+  
+  # Estimer a séparément pour chaque processus
+  a1 <- estimer_a(t1, x1)
+  a2 <- estimer_a(t2, x2)
+  
+  # Moyenne pondérée par le nombre d'observations
+  a_estime <- (N1 * a1 + N2 * a2) / (N1 + N2)
+  
+  interp1 <- gamma_bridge(t1, x1, a_estime, dt_eq)
+  interp2 <- gamma_bridge(t2, x2, a_estime, dt_eq)
+  
+  dx1 <- diff(c(0, interp1$value))
+  dx2 <- diff(c(0, interp2$value))
+  
+  n_min <- min(length(dx1), length(dx2))
+  ks.test(dx1[1:n_min], dx2[1:n_min])
+}
+```
+
+# Application 
+
+```{r}
+# Pour avoir des processus vraiment "identiques" au sens des réalisations
+set.seed(123)
+t1 <- sort(runif(40, 0, 20))
+t1 <- c(0, t1)
+x1 <- numeric(length(t1))
+for(i in 2:length(t1)){
+  x1[i] <- x1[i-1] + rgamma(1, shape = 2*(t1[i]-t1[i-1]), rate = 1)
+}
+
+# Processus 2 = Processus 1 
+t2 <- t1
+x2 <- x1
+
+resultat <- test_ks_deux_echantillons(t1, x1, t2, x2)
+resultat
+``` 
+
+
+```{r}
+# Cas 2: Deux processus différents (H0 fausse)
+set.seed(123)  
+
+# Processus 1 (paramètres de référence: shape = 2)
+t1 <- sort(runif(40, 0, 20))
+t1 <- c(0, t1)
+x1 <- numeric(length(t1))
+for(i in 2:length(t1)){
+  x1[i] <- x1[i-1] + rgamma(1, shape = 2*(t1[i]-t1[i-1]), rate = 1)
+}
+
+# Processus 2 (paramètres différents: shape = 3)
+t2 <- sort(runif(35, 0, 18))
+t2 <- c(0, t2)
+x2 <- numeric(length(t2))
+for(i in 2:length(t2)){
+  x2[i] <- x2[i-1] + rgamma(1, shape = 3*(t2[i]-t2[i-1]), rate = 1)
+}
+
+# Test
+resultat_2 <- test_ks_deux_echantillons(t1, x1, t2, x2)
+print(resultat_2)
+```
+
+

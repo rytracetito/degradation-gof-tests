@@ -1,0 +1,538 @@
+---
+title: "Approche Ext Bridge: Cas de plusieurs trajectoires"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+pgcd <- function(a, b) {
+  a <- abs(a)
+  b <- abs(b)
+  while (b != 0) {
+    temp <- b
+    b <- a %% b
+    a <- temp
+  }
+  return(a)
+}
+
+# Construction de la grille 
+
+construire_grille_multi <- function(trajectoires, digits = 2) {
+  liste_temps <- lapply(trajectoires, function(tr) tr$t)
+  all_t <- sort(unique(round(unlist(liste_temps), digits)))
+  if (length(all_t) < 2) {
+    stop("Au moins deux instants distincts sont nécessaires.")
+  }
+  facteur <- 10^digits
+  all_t_int <- round(all_t * facteur)
+  diff_int <- diff(all_t_int)
+  if (length(diff_int) == 0) {
+    stop("Impossible de construire la grille.")
+  }
+  
+  d <- Reduce(pgcd, diff_int)
+  pas <- d / facteur
+  t_max <- max(all_t)
+  t_fine <- seq(from = 0,to = t_max,by = pas)
+  
+  return(list(
+    t_fine = t_fine,
+    pas = pas,
+    n_fine = length(t_fine)
+  ))
+}
+```
+
+# Pont gamma séquentielle 
+
+```{r}
+pont_gamma_sequentiel_multi <- function(trajectoires, a, t_fine) {
+  pas <- diff(t_fine)[1]
+  tol <- 1e-10
+  res <- list()
+  
+  for (i in seq_along(trajectoires)) {
+    tr <- trajectoires[[i]]
+    t_obs <- tr$t
+    X_obs <- tr$X
+    
+    idx_max <- max(which(t_fine <= max(t_obs) + tol))
+    t_fine_i <- t_fine[1:idx_max]
+    K <- length(t_fine_i)
+    if (K < 2) next
+    
+    X_fine <- rep(NA_real_, K)
+    X_fine[1] <- X_obs[1]
+    j_obs <- 1
+    
+    for (k in 2:K) {
+      t_cible <- t_fine_i[k]
+      
+      while (j_obs < length(t_obs) && t_cible > t_obs[j_obs + 1] + tol) {
+        j_obs <- j_obs + 1
+      }
+      
+      if (j_obs < length(t_obs) && abs(t_cible - t_obs[j_obs + 1]) <= tol) {
+        j_obs <- j_obs + 1
+        X_fine[k] <- X_obs[j_obs]
+        next
+      }
+      
+      if (j_obs == length(t_obs)) {
+        X_fine[k] <- X_obs[j_obs]
+        next
+      }
+      
+      t_sup <- t_obs[j_obs + 1]
+      x_sup <- X_obs[j_obs + 1]
+      
+      delta1 <- pas                
+      delta2 <- t_sup - t_cible      
+      
+      alpha1 <- a * delta1
+      alpha2 <- a * delta2
+      
+      B <- rbeta(1, alpha1, alpha2)
+      X_fine[k] <- X_fine[k - 1] + B * (x_sup - X_fine[k - 1])
+    }
+    
+    X_fine[K] <- X_obs[length(X_obs)]
+    
+    diff_X <- diff(X_fine)
+    
+    res[[i]] <- list(
+      t_fine  = t_fine_i,
+      X_fine  = X_fine,
+      diff_X  = diff_X
+    )
+  }
+  return(res)
+}
+```
+
+
+# Simulation d'un HGP
+
+```{r}
+
+set.seed(73)
+simuler_gamma <- function(a, b, temps_obs) {
+  delta_t <- diff(c(0, temps_obs))
+  delta_X <- rgamma(length(delta_t), shape = a * delta_t, scale = 1/b)
+  X <- cumsum(c(0, delta_X))
+  list(t = c(0, temps_obs), X = X)
+}
+```
+
+# Estimation des paramètres
+
+```{r}
+estimer_multi <- function(trajectoires) {
+  
+  all_dt <- numeric()
+  all_dx <- numeric()
+  
+  for (i in seq_along(trajectoires)) {
+    
+    all_dt <- c(
+      all_dt,
+      diff(trajectoires[[i]]$t)
+    )
+    
+    all_dx <- c(
+      all_dx,
+      diff(trajectoires[[i]]$X)
+    )
+  }
+  
+  mu_hat <- sum(all_dx) / sum(all_dt)
+  
+  denom <- sum(all_dt) -
+    sum(all_dt^2) / sum(all_dt)
+  
+  nu_hat <- sum(
+    (all_dx - mu_hat * all_dt)^2
+  ) / denom
+  
+  a_hat <- mu_hat^2 / nu_hat
+  
+  return(a_hat)
+}
+
+```
+
+# Application 1
+
+```{r}
+set.seed(46)
+
+t_obs1 <- c(1.1, 3.5, 4, 5,7, 10, 12)
+t_obs2 <- c(1, 2, 3, 5.1)
+
+traj1 <- simuler_gamma(
+  a = 2,
+  b = 0.5,
+  temps_obs = t_obs1
+)
+
+traj2 <- simuler_gamma(
+  a = 2,
+  b = 0.5,
+  temps_obs = t_obs2
+)
+
+trajectoires <- list(
+  traj1,
+  traj2
+)
+```
+
+
+```{r}
+grille <- construire_grille_multi(
+  trajectoires,
+  digits = 2
+)
+
+t_fine <- grille$t_fine
+```
+
+
+```{r}
+a_hat <- estimer_multi(trajectoires)
+
+a_hat
+```
+
+
+```{r}
+set.seed(46)
+
+res <- pont_gamma_sequentiel_multi(
+  trajectoires = trajectoires,
+  a = 2,
+  t_fine = t_fine
+)
+```
+
+
+```{r}
+library(ggplot2)
+
+# Points observés
+df_obs <- data.frame(
+  temps       = trajectoires[[1]]$t,
+  degradation = trajectoires[[1]]$X,
+  type        = "Observé"
+)
+
+# Points interpolés 
+df_sim <- data.frame(
+  temps       = res[[1]]$t_fine,
+  degradation = res[[1]]$X_fine,
+  type        = "Pont gamma"
+)
+
+ggplot() +
+  geom_line(data  = df_sim, aes(x = temps, y = degradation),
+            color = "steelblue", linewidth = 0.8) +
+  geom_point(data  = df_sim, aes(x = temps, y = degradation),
+             color = "steelblue", shape = 16, size = 1.5) +
+  geom_point(data  = df_obs, aes(x = temps, y = degradation),
+             color = "red", shape = 16, size = 3) +
+  labs(
+    title = "Pont gamma séquentiel — Trajectoire 1",
+    x     = "Temps",
+    y     = "Dégradation"
+  ) +
+  theme_minimal()
+
+```
+
+# Nombre de points ajoutés 
+
+```{r}
+n_obs <- length(trajectoires[[1]]$t)
+
+n_total <- length(res[[1]]$t_fine)
+
+n_pseudo <- n_total - n_obs
+
+cat("Observations :", n_obs, "\n")
+cat("Total après pont gamma :", n_total, "\n")
+cat("Pseudo-observations :", n_pseudo, "\n")
+```
+# Test d'adéquation 
+
+```{r}
+set.seed(47)
+dx <- unlist(lapply(res, function(x) x$diff_X))
+
+library(gofgamma)
+
+# Test de Henze
+test_henze <- test.HME1(dx, a = 1, boot = 200, alpha = 0.05)
+print(test_henze)
+```
+
+
+```{r}
+library(goft)
+test_villa <- gamma_test(dx)
+print(test_villa)
+
+```
+
+
+
+# Autres plans d'échantillonnage 
+
+## Application 1: Fréquence croissante
+
+```{r}
+times_fonction <- function(tmax = 100, xmax = 10, n = 10) {
+  f1 <- function(x) tmax * log(x + 1) / log(xmax + 1)
+  x.pts <- seq(0, xmax, length.out = n + 1)
+  tps <- f1(x.pts)
+  round(tps, digits = 0)
+}
+```
+
+
+```{r}
+
+t1 <- times_fonction(n = 10)   
+t2 <- times_fonction(n = 5)    
+
+par(mfrow = c(2, 1))
+plot(t1, rep(1, length(t1)), pch = 19, main = "t1", xlab = "t ", ylab = "")
+plot(t2, rep(1, length(t2)), pch = 19, main = "t2", xlab = "t ", ylab = "")
+par(mfrow = c(1, 1))
+
+```
+
+
+```{r}
+simuler_gamma <- function(a, b, temps_obs) {
+  delta_t <- diff(temps_obs)
+  delta_X <- rgamma(length(delta_t), shape = a * delta_t, scale = 1/b)
+  X <- c(0, cumsum(delta_X))   
+  list(t = temps_obs, X = X)
+}
+```
+
+
+```{r}
+set.seed(46)
+traj1 <- simuler_gamma(a = 2, b = 0.5, temps_obs = t1)
+traj2 <- simuler_gamma(a = 2,b = 0.5,temps_obs = t2)
+traj <- list(traj1, traj2)
+traj
+```
+
+```{r}
+grille <- construire_grille_multi(
+  traj,
+  digits = 2
+)
+
+t_fine1 <- grille$t_fine
+```
+
+
+
+
+```{r}
+set.seed(46)
+
+res1 <- pont_gamma_sequentiel_multi(
+  trajectoires = traj,
+  a = 2,
+  t_fine = t_fine1
+)
+#res1
+```
+
+```{r}
+n_obs <- length(traj[[1]]$t)
+
+n_total <- length(res1[[1]]$t_fine)
+
+n_pseudo <- n_total - n_obs
+
+cat("Observations :", n_obs, "\n")
+cat("Total après pont gamma :", n_total, "\n")
+cat("Pseudo-observations :", n_pseudo, "\n")
+```
+
+
+
+```{r}
+set.seed(46)
+
+library(ggplot2)
+
+df_obs <- data.frame(
+  temps       = traj[[1]]$t,
+  degradation = traj[[1]]$X,
+  type        = "Observé"
+)
+
+df_sim <- data.frame(
+  temps       = res1[[1]]$t_fine,
+  degradation = res1[[1]]$X_fine,
+  type        = "Interpolé (pont gamma)"
+)
+
+ggplot() +
+  geom_line(data  = df_sim, aes(x = temps, y = degradation), 
+            color = "steelblue", linewidth = 0.8) +
+  geom_point(data  = df_sim, aes(x = temps, y = degradation), 
+             color = "steelblue", shape = 16, size = 1.5) +
+  geom_point(data  = df_obs, aes(x = temps, y = degradation), 
+             color = "red", shape = 16, size = 3) +
+  labs(
+    title   = "Pont gamma séquentiel — Trajectoire 1",
+    x       = "Temps",
+    y       = "Dégradation"
+  ) +
+  theme_minimal()
+
+```
+# Nombre de points ajoutés 
+
+
+```{r}
+n_obs <- length(traj[[1]]$t)
+
+n_total <- length(res1[[1]]$t_fine)
+
+n_pseudo <- n_total - n_obs
+
+cat("Observations :", n_obs, "\n")
+cat("Total après pont gamma :", n_total, "\n")
+cat("Pseudo-observations :", n_pseudo, "\n")
+
+```
+# Test d'adéquation
+
+# Test de Henze
+
+```{r}
+set.seed(47)
+dx1 <- unlist(lapply(res1, function(x) x$diff_X))
+
+library(gofgamma)
+
+test_henze <- test.HME1(dx1, a = 1, boot = 200, alpha = 0.05)
+print(test_henze)
+```
+
+
+
+```{r}
+library(goft)
+test_villa <- gamma_test(dx1)
+print(test_villa)
+```
+## Application 2: Fréquence décroissante
+
+
+```{r}
+times_fonction2<- function(tmax = 100, xmax = 10, n = 10) {
+  f3 <- function(x) tmax * x^2 / (xmax^2)
+  x.pts <- seq(0, xmax, length.out = n + 1)
+  tps <- f3(x.pts)
+  round(tps, digits = 0)          
+}
+```
+
+
+```{r}
+t3 <- times_fonction2(n = 10)   
+t4 <- times_fonction2(n = 5)
+```
+
+
+```{r}
+par(mfrow = c(2, 1))
+plot(t3, rep(1, length(t1)), pch = 19, main = "t3", xlab = "t", ylab = "")
+plot(t4, rep(1, length(t2)), pch = 19, main = "t4",  xlab = "t", ylab = "")
+par(mfrow = c(1, 1))
+```
+
+
+```{r}
+simuler_gamma <- function(a, b, temps_obs) {
+  delta_t <- diff(temps_obs)
+  delta_X <- rgamma(length(delta_t), shape = a * delta_t, scale = 1/b)
+  X <- c(0, cumsum(delta_X))   
+  list(t = temps_obs, X = X)
+}
+```
+
+
+```{r}
+set.seed(46)
+traj1 <- simuler_gamma(a = 2, b = 0.5, temps_obs = t3)
+traj2 <- simuler_gamma(a = 2, b = 0.5, temps_obs = t4)
+traj <- list(traj1, traj2)
+
+grille <- construire_grille_multi(traj, digits = 2)
+t_fine2 <- grille$t_fine
+```
+
+
+```{r}
+set.seed(46)
+res <- pont_gamma_sequentiel_multi(trajectoires = traj, a = 2, t_fine = t_fine2)
+```
+
+
+```{r}
+n_obs <- length(traj[[1]]$t)
+n_total <- length(res[[1]]$t_fine)
+n_pseudo <- n_total - n_obs
+cat("Observations :", n_obs, "\n")
+cat("Total après pont gamma :", n_total, "\n")
+cat("Pseudo-observations :", n_pseudo, "\n")
+```
+
+
+```{r}
+# Visualisation 
+library(ggplot2)
+df_obs <- data.frame(temps = traj[[1]]$t, degradation = traj[[1]]$X, type = "Observé")
+df_sim <- data.frame(temps = res[[1]]$t_fine, degradation = res[[1]]$X_fine, type = "Interpolé (pont gamma)")
+
+
+ggplot() +
+  geom_line(data = df_sim, aes(x = temps, y = degradation), color = "steelblue", linewidth = 0.8) +
+  geom_point(data = df_sim, aes(x = temps, y = degradation), color = "steelblue", shape = 16, size = 1.5) +
+  geom_point(data = df_obs, aes(x = temps, y = degradation), color = "red", shape = 16, size = 3) +
+  labs(title = "Pont gamma séquentiel — Trajectoire 1 ",
+       x = "Temps", y = "Dégradation") +
+  theme_minimal()
+```
+
+
+```{r}
+dx <- unlist(lapply(res, function(x) x$diff_X))
+
+# Test de Henze
+library(gofgamma)
+set.seed(47)
+test_henze <- test.HME1(dx, a = 1, boot = 200, alpha = 0.05)
+print(test_henze)
+```
+
+
+```{r}
+# Test de Villaseñor
+library(goft)
+test_villa <- gamma_test(dx)
+print(test_villa)
+```
+

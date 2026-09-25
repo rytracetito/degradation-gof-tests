@@ -1,0 +1,365 @@
+---
+title: "Simulation d’un processus de Wiener par Random Walk
+Approximation (RWA)"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+# Chargement des fonctions nécessaires
+source("Construit_grille_wiener.R")
+
+# Dans ce paquet il y a trois fonctions:
+#  - construire_grille (entier et décimaux)
+#  - simulate_wiener_rwa : Simulation d'un processus de Wiener par RWA
+#  - Estime paramètres : Estimation des paramètres par la methode des moments
+```
+
+
+# Fonction  `simulate_wiener_rwa`
+
+```{r}
+# Simulation d'un processus de Wiener par RWA
+
+simulate_wiener_rwa <- function(times, mu, sigma, nsim = 1) {
+  
+# Vérification des entrées
+  if (!is.numeric(times) || !is.vector(times)) {
+    stop("'times' doit être un vecteur numérique.")
+  }
+  
+  if (length(times) < 2) {
+    stop("'times' doit contenir au moins deux points.")
+  }
+  
+  if (any(diff(times) <= 0)) {
+    stop("'times' doit être strictement croissant.")
+  }
+  
+  if (times[1] != 0) {
+    warning("Le premier temps n'est pas 0. Ajout de 0 au début.")
+    times <- c(0, times)
+  }
+  
+  if (!is.numeric(mu)) {
+    stop("'mu' doit être numérique.")
+  }
+  
+  if (!is.numeric(sigma) || sigma <= 0) {
+    stop("'sigma' doit être un nombre positif.")
+  }
+  
+  if (!is.numeric(nsim) || nsim < 1 || nsim != floor(nsim)) {
+    stop("'nsim' doit être un entier positif.")
+  }
+  
+  # Étape 1 : Calculer les pas de temps
+  n <- length(times) - 1
+  dt <- diff(times)
+  
+  # Étape 2 : Générer les incréments
+  increments <- matrix(
+    data = rnorm(n = n * nsim, mean = 0, sd = 1),
+    nrow = n,
+    ncol = nsim
+  )
+  
+ 
+  increments <- mu * dt + sigma * sqrt(dt) * increments
+  
+  # Étape 3 : Calculer les trajectoires par somme cumulative
+  trajectories <- rbind(
+    rep(0, nsim),
+    apply(increments, 2, cumsum)
+  )
+  
+  # Nommer les lignes et les colonnes
+  rownames(trajectories) <- times
+  colnames(trajectories) <- paste0("Traj_", 1:nsim)
+  
+  return(trajectories)
+}
+```
+
+
+```{r}
+# Exemple d'utilisation
+set.seed(124)
+times <- seq(0, 10, by = 0.1)
+mu <- 2
+sigma <- 1.5
+
+resultat <- simulate_wiener_rwa(times, mu, sigma, nsim = 3)
+
+# Affichage des résultats
+print(head(resultat))
+
+# Visualisation
+matplot(times, resultat, type = "l", lty = 1, lwd = 2,
+        col = rainbow(ncol(resultat)),
+        xlab = "Temps t", ylab = "X(t)",
+        main = paste("Processus de Wiener (mu =", mu, ", sigma =", sigma, ")"))
+
+```
+
+
+
+## Fonction  `simuler_wiener_obs`
+
+### Objectif
+
+Simuler un processus de Wiener avec dérive et extraire les valeurs exactes aux temps d'observation.
+
+### Principe
+
+- Construire une grille fine contenant tous les temps d'observation
+
+- Simuler le processus de Wiener sur cette grille fine
+
+- Extraire les valeurs aux indices correspondant aux temps d'observation 
+
+```{r}
+
+# t_obs Vecteur des temps d'observation (strictement croissant)
+# mu: Paramètre de dérive
+# sigma: Paramètre de volatilité (sigma > 0)
+# rho:  Facteur de raffinement (par défaut = 1)
+# nsim: Nombre de trajectoires à simuler
+# Return la liste contenant les observations et la trajectoire fine
+
+simuler_wiener_obs <- function(t_obs, mu, sigma, rho = 1, nsim = 1) {
+  
+  # Vérifications des entrées
+  if (!is.numeric(t_obs) || length(t_obs) < 2) {
+    stop("t_obs doit être un vecteur numérique d'au moins 2 éléments.")
+  }
+  if (any(diff(t_obs) <= 0)) {
+    stop("t_obs doit être strictement croissant.")
+  }
+  if (t_obs[1] != 0) {
+    warning("Le premier temps n'est pas 0. Ajout de 0 au début.")
+    t_obs <- c(0, t_obs)
+  }
+  if (!is.numeric(mu)) {
+    stop("mu doit être numérique.")
+  }
+  if (!is.numeric(sigma) || sigma <= 0) {
+    stop("sigma doit être un nombre positif.")
+  }
+  if (!is.numeric(rho) || rho <= 0) {
+    stop("rho doit être un nombre positif.")
+  }
+  if (!is.numeric(nsim) || nsim < 1 || nsim != floor(nsim)) {
+    stop("nsim doit être un entier positif.")
+  }
+  
+  # Étape 1 : Construire la grille fine
+  grille <- construire_grille(t_obs, rho)
+  
+  # Étape 2 : Simuler le processus de Wiener sur la grille fine
+  X_fine <- simulate_wiener_rwa(times = grille$t_fine, 
+                                 mu = mu, 
+                                 sigma = sigma, 
+                                 nsim = nsim)
+  
+  # Étape 3 : Extraire les valeurs aux temps d'observation
+  if (nsim == 1) {
+    X_obs <- X_fine[grille$idx_obs, 1]
+    obs <- data.frame(t = t_obs, X = X_obs)
+    traj_fine <- data.frame(t = grille$t_fine, X = X_fine[, 1])
+  } else {
+    X_obs <- X_fine[grille$idx_obs, ]
+    obs <- data.frame(t = t_obs, X_obs)
+    colnames(obs)[-1] <- paste0("sim", 1:nsim)
+    traj_fine <- data.frame(t = grille$t_fine, X_fine)
+  }
+  
+  # Retourner les résultats
+  return(list(
+    obs = obs,
+    traj_fine = traj_fine,
+    indices = grille$idx_obs,
+    grille = grille
+  ))
+}
+```
+
+```{r}
+# ============================================================================
+# APPLICATION 
+# ============================================================================
+
+library(ggplot2)
+library(tidyr)
+
+# Temps d'observation 
+t_obs <- c(0, 5, 10, 15, 20, 25, 30)
+
+# Paramètres du Wiener
+mu <- 2
+sigma <- 1.5
+rho <- 10
+nsim <- 2  
+
+# Simulation
+set.seed(123)
+resultat <- simuler_wiener_obs(t_obs = t_obs, 
+                                mu = mu, 
+                                sigma = sigma, 
+                                rho = rho, 
+                                nsim = nsim)
+
+# Transformation des données selon nsim
+if (nsim == 1) {
+  traj_fine_long <- resultat$traj_fine
+  traj_fine_long$Trajectoire <- "sim1"
+  obs_long <- resultat$obs
+  obs_long$Trajectoire <- "sim1"
+} else {
+  traj_fine_long <- pivot_longer(resultat$traj_fine, 
+                                  cols = -t,
+                                  names_to = "Trajectoire",
+                                  values_to = "X")
+  obs_long <- pivot_longer(resultat$obs, 
+                            cols = starts_with("sim"),
+                            names_to = "Trajectoire",
+                            values_to = "X")
+}
+
+# Graphique
+
+ggplot() +
+  geom_step(data = traj_fine_long, 
+            aes(x = t, y = X, color = Trajectoire), 
+            linewidth = 1.5, alpha = 0.9) +
+  geom_point(data = obs_long, 
+             aes(x = t, y = X, color = Trajectoire), 
+             size = 2, stroke = 0.5) +
+  labs(title = "Processus de Wiener",
+       subtitle = paste0("mu = ", mu, ", sigma = ", sigma, 
+                         ", rho = ", rho, ", pas_fine = ", resultat$grille$pas_fine),
+       x = "t", y = "X(t)") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+```
+
+
+
+
+
+## Fonction simuler_wiener_obs_dec
+
+### Objectif
+
+Simuler un processus de wiener avec dérive et extraire les  valeurs exactes aux temps d’observation décimaux.
+
+```{r}
+
+simuler_wiener_obs_dec <- function(t_obs, mu, sigma, rho = 1, nsim = 1, digits = 3) {
+  
+  # Vérifications des entrées
+  if (!is.numeric(t_obs) || length(t_obs) < 2) {
+    stop("t_obs doit être un vecteur numérique d'au moins 2 éléments.")
+  }
+  if (any(diff(t_obs) <= 0)) {
+    stop("t_obs doit être strictement croissant.")
+  }
+  if (t_obs[1] != 0) {
+    warning("Le premier temps n'est pas 0. Ajout de 0 au début.")
+    t_obs <- c(0, t_obs)
+  }
+  if (!is.numeric(mu)) {
+    stop("mu doit être numérique.")
+  }
+  if (!is.numeric(sigma) || sigma <= 0) {
+    stop("sigma doit être un nombre positif.")
+  }
+  if (!is.numeric(rho) || rho <= 0) {
+    stop("rho doit être un nombre positif.")
+  }
+  if (!is.numeric(nsim) || nsim < 1 || nsim != floor(nsim)) {
+    stop("nsim doit être un entier positif.")
+  }
+  if (!is.numeric(digits) || digits < 0) {
+    stop("digits doit être un nombre positif ou nul.")
+  }
+  
+  # Étape 1 : Construire la grille fine pour décimaux
+  grille <- construire_grille_dec(t_obs, rho, digits)
+  
+  # Étape 2 : Simuler le processus de Wiener sur la grille fine
+  X_fine <- simulate_wiener_rwa(times = grille$t_fine, 
+                                 mu = mu, 
+                                 sigma = sigma, 
+                                 nsim = nsim)
+  
+  # Étape 3 : Extraire les valeurs aux temps d'observation
+  if (nsim == 1) {
+    X_obs <- X_fine[grille$idx_obs, 1]
+    obs <- data.frame(t = grille$t_obs, X = X_obs)
+    traj_fine <- data.frame(t = grille$t_fine, X = X_fine[, 1])
+  } else {
+    X_obs <- X_fine[grille$idx_obs, ]
+    obs <- data.frame(t = grille$t_obs, X_obs)
+    colnames(obs)[-1] <- paste0("sim", 1:nsim)
+    traj_fine <- data.frame(t = grille$t_fine, X_fine)
+  }
+  
+  # Retourner les résultats
+  return(list(
+    obs = obs,
+    traj_fine = traj_fine,
+    indices = grille$idx_obs,
+    grille = grille
+  ))
+}
+```
+
+```{r}
+# ============================================================================
+# Application 1
+# ============================================================================
+
+library(ggplot2)
+library(tidyr)
+
+# Temps d'observation décimaux
+t_obs_dec <- c(0, 1.5, 3.2, 5.7, 8.1, 10.0)
+
+# Paramètres du Wiener
+mu <- 2
+sigma <- 1.5
+rho <- 10
+
+# Simulation
+set.seed(123)
+resultat <- simuler_wiener_obs_dec(t_obs = t_obs_dec, 
+                                    mu = mu, 
+                                    sigma = sigma, 
+                                    rho = rho, 
+                                    nsim = 1,
+                                    digits = 2)
+
+# Affichage des observations
+print(resultat$obs)
+
+# Premières lignes de la trajectoire fine
+head(resultat$traj_fine)
+
+# Visualisation
+ggplot() +
+  geom_step(data = resultat$traj_fine, 
+            aes(x = t, y = X), 
+            color = "grey", linewidth = 1) +
+  geom_point(data = resultat$obs, 
+             aes(x = t, y = X), 
+             color = "red", size = 3) +
+  labs(title = "Processus de Wiener - Temps décimaux",
+       subtitle = paste0("mu = ", mu, ", sigma = ", sigma, 
+                         ", rho = ", rho, 
+                         ", pas_fine = ", resultat$grille$pas_fine),
+       x = "t", y = "X(t)") +
+  theme_minimal()
+```

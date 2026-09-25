@@ -1,0 +1,294 @@
+---
+title: "Utilisation des tests de Henze pour le processus gamma"
+author: "TITO A. Rytrace"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+
+# Test de Henze 
+La description du test se trouve dans l'article suivant (Goodness-of-Fit Tests for the Gamma Distribution Based on the Empirical Laplace Transform)
+
+## Cas 1 :  Processus Observés avec inspections périodiques (régulier)
+
+```{r}
+if (!require(gofgamma)) {
+  install.packages("gofgamma")
+  library(gofgamma)
+}
+```
+
+
+```{r}
+
+gof_henze_reg<- function(dx, 
+                            a = 1, # a = 1 pour HME1 (Test recommandé dans l'article)
+                            boot = 500, alpha = 0.05) {
+    resul <- test.HME1(dx, a = a, boot = boot, alpha = alpha)
+     return(resul)
+}  
+```
+
+```{r}
+# Simulation du processus
+set.seed(123)
+N <- 50          # Nombre de pas
+dt_eq <- 1         # Pas de temps
+a_test <- 3        # Vrai paramètre de forme
+b_test <- 0.5      # Vrai paramètre de taux
+
+t <- seq(0, N * dt_eq, by = dt_eq)
+x <- numeric(length(t))
+for (i in 2:length(t)) {
+  x[i] <- x[i-1] + rgamma(1, shape = a_test * dt_eq, rate = b_test)
+}
+dx <- diff(x)
+
+# Application 
+resultat <- gof_henze_reg(dx, a = 1, boot = 500, alpha = 0.05)
+print(resultat)
+
+```
+
+## Cas 2 :  Processus Observés avec inspections apériodiques (irrégulier)
+
+
+```{r}
+# Gamma Bridge (Pont Gamma)
+
+gamma_bridge <- function(t, x, a, dt_eq) {
+  
+  if(any(diff(t) <= 0)) stop("Les temps doivent être strictement croissants")
+  if(a <= 0) stop("a doit être positif")
+  
+  Np <- floor(max(t) / dt_eq)
+  t_eq <- seq(dt_eq, Np * dt_eq, by = dt_eq)
+  x_eq <- numeric(Np)
+  
+  for (i in 1:Np) {
+    
+    ti <- t_eq[i]
+    
+    sup_i <- which(t >= ti)[1]
+    t_sup <- t[sup_i]
+    x_sup <- x[sup_i]
+    
+    if (sup_i == 1) {
+      t_inf <- 0
+      x_inf <- 0
+    } else {
+      t_inf_candidate <- t[sup_i - 1]
+      
+      if (t_inf_candidate > (i - 1) * dt_eq) {
+        t_inf <- t_inf_candidate
+        x_inf <- x[sup_i - 1]
+      } else {
+        t_inf <- (i - 1) * dt_eq
+        x_inf <- if (i > 1) x_eq[i - 1] else 0
+      }
+    }
+    
+    # alpha1 <- a * (ti - t_inf)
+    # alpha2 <- a * (t_sup - ti)
+    
+    alpha1 <- a * max(ti - t_inf, 1e-10)  #  Pour Éviter 0
+    alpha2 <- a * max(t_sup - ti, 1e-10) 
+    
+    
+    
+    # Vérification 
+    if (alpha1 <= 0 || alpha2 <= 0) {
+      stop(paste("Paramètres bêta non positifs:", alpha1, alpha2))
+    }
+    
+    y <- rbeta(1, alpha1, alpha2)
+    x_eq[i] <- x_inf + (x_sup - x_inf) * y
+  }
+  
+  return(data.frame(time = t_eq, value = x_eq))
+}
+
+```
+
+
+```{r}
+# Fonction de tri
+
+tri_sample <- function(dt, dx, dt_eq) {
+  
+  N <- length(dt)
+  
+  dt_c <- dt
+  dx_c <- dx
+  
+  dt_s <- numeric(N)
+  dx_s <- numeric(N)
+  
+  max_i <- which.max(dt_c)
+  dt_s[1] <- dt_c[max_i]
+  dx_s[1] <- dx_c[max_i]
+  
+  dt_c <- dt_c[-max_i]
+  dx_c <- dx_c[-max_i]
+  
+  for (i in 2:N) {
+    
+    cum_time <- sum(dt_s[1:(i - 1)])
+    diffs <- (cum_time + dt_c) - i * dt_eq
+    
+    valid <- which(diffs >= 0)
+    
+    if (length(valid) > 0) {
+      choix <- valid[which.min(diffs[valid])]
+    } else {
+      choix <- which.max(diffs)
+    }
+    
+    dt_s[i] <- dt_c[choix]
+    dx_s[i] <- dx_c[choix]
+    
+    dt_c <- dt_c[-choix]
+    dx_c <- dx_c[-choix]
+  }
+  
+  return(list(dt = dt_s, dx = dx_s))
+}
+```
+
+# Estimation du paramètre a :  Méthode des moments
+
+
+```{r}
+estimer_a <- function(t, x) {
+  
+  dt <- diff(t)
+  dx <- diff(x)
+  
+  m_hat <- sum(dx) / sum(dt)
+  n_hat <- sum((dx - m_hat * dt)^2) /
+           (sum(dt) - sum(dt^2) / sum(dt))
+  
+  return(m_hat^2 / n_hat)
+}
+```
+
+```{r}
+gof_henze_irreg <- function(x, t, 
+                            a_ref = NULL,
+                            a = 1,  # a = 1 pour HME1 (Test recommandé dans l'article)
+                            boot = 500, 
+                            alpha = 0.05,
+                            dt_eq = NULL) {
+  
+  # Incréments originaux
+  dt <- diff(t)
+  dx <- diff(x)
+  
+  # Estimation de dt_eq si non fourni
+  if(is.null(dt_eq)) dt_eq <- mean(dt)
+  
+  # Tri des observations
+  tri <- tri_sample(dt, dx, dt_eq)
+  t_tri <- c(0, cumsum(tri$dt))
+  x_tri <- c(0, cumsum(tri$dx))
+  
+  # Estimation de a si non fourni
+  if(is.null(a_ref)) a_ref <- estimer_a(t_tri, x_tri)
+  
+  # Pont gamma
+  interp <- gamma_bridge(t_tri, x_tri, a_ref, dt_eq)
+  dx_eq <- diff(c(0, interp$value))
+  
+  # Test de Henze
+ 
+  resultat <- test.HME1(dx_eq, a = a, boot = boot, alpha = alpha)
+  
+  return(resultat)
+}
+
+```
+
+# Application 1: Processus Gamma
+```{r}
+# Application 1
+# Génération des données irrégulières
+N <- 50
+dt_eq <- 1
+a_true <- 2
+b_true <- 1
+
+t <- sort(runif(N, 0, N * dt_eq))
+t <- c(0, t)
+
+x <- numeric(length(t))
+for(i in 2:length(t)){
+  x[i] <- x[i-1] + rgamma(1, shape = a_true * (t[i]-t[i-1]), rate = b_true)
+}
+
+# Test de Henze
+
+resultat <- gof_henze_irreg(x = x, t = t, dt_eq = dt_eq, boot = 500)
+print(resultat)
+```
+# Application 2: Processus log-normal 
+```{r}
+# Processus log-normal (incréments positifs mais pas Gamma)
+N <- 50
+dt_eq <- 1
+mu <- 0.5
+sigma <- 2
+
+t <- sort(runif(N, 0, N * dt_eq))
+t <- c(0, t)
+
+x <- numeric(length(t))
+for(i in 2:length(t)){
+  dt <- t[i] - t[i-1]
+  x[i] <- x[i-1] + rlnorm(1, meanlog = mu * dt, sdlog = sigma * sqrt(dt))
+}
+
+resultat <- gof_henze_irreg(x = x, t = t, dt_eq = dt_eq, boot = 500)
+print(resultat)
+```
+
+# Application 3: distribution uniforme
+
+```{r}
+# Incréments uniformes (pas du tout Gamma)
+N <- 100
+dt_eq <- 1
+
+t <- sort(runif(N, 0, N * dt_eq))
+t <- c(0, t)
+
+x <- numeric(length(t))
+for(i in 2:length(t)){
+  dt <- t[i] - t[i-1]
+  x[i] <- x[i-1] + runif(1, min = 0, max = 2 * dt)
+}
+
+resultat <- gof_henze_irreg(x = x, t = t, dt_eq = dt_eq, boot = 500)
+print(resultat)
+```
+
+# Application à un jeu de données réelles
+
+```{r}
+# Charger les données
+library(nlme)
+data(Fatigue)
+
+head(Fatigue)
+
+
+# Extraire un chemin (Path 1)
+path1 <- subset(Fatigue, Path == 1)
+t <- path1$cycles * 1e6  # cycles en millions
+x <- path1$relLength     # longueur relative de fissure
+
+# Tester
+resultat <- gof_henze_irreg(x = x, t = t, dt_eq = 10000, boot = 500)
+print(resultat)
+```
+
+
